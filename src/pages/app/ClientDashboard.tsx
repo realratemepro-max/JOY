@@ -4,13 +4,14 @@ import { collection, getDocs, query, where, orderBy, limit } from 'firebase/fire
 import { db } from '../../services/firebase';
 import { useAuth } from '../../context/AuthContext';
 import { Subscription, Session, Payment } from '../../types';
-import { Calendar, CreditCard, ClipboardList, MapPin, Clock, ArrowRight, Sparkles } from 'lucide-react';
+import { Calendar, CreditCard, ClipboardList, MapPin, Clock, ArrowRight, Sparkles, Award } from 'lucide-react';
 
 export function ClientDashboard() {
   const { user, appUser } = useAuth();
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [nextSession, setNextSession] = useState<Session | null>(null);
   const [recentPayments, setRecentPayments] = useState<Payment[]>([]);
+  const [totalAttended, setTotalAttended] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -56,6 +57,17 @@ export function ClientDashboard() {
         limit(3)
       ));
       setRecentPayments(paymentsSnap.docs.map(d => ({ id: d.id, ...d.data(), createdAt: d.data().createdAt?.toDate() } as Payment)));
+
+      // Count total attended sessions for loyalty
+      const allSessionsSnap = await getDocs(collection(db, 'sessions'));
+      let attended = 0;
+      allSessionsSnap.docs.forEach(d => {
+        const data = d.data();
+        data.enrolledStudents?.forEach((s: any) => {
+          if (s.userId === user!.uid && s.status === 'attended') attended++;
+        });
+      });
+      setTotalAttended(attended);
     } catch (err) {
       console.error('Error loading dashboard:', err);
     } finally {
@@ -163,6 +175,33 @@ export function ClientDashboard() {
           )}
           <Link to="/app/payments" className="dash-link">Ver todos <ArrowRight size={16} /></Link>
         </div>
+
+        {/* Loyalty / Fidelidade */}
+        <div className="dash-card loyalty-card">
+          <div className="dash-card-header">
+            <Award size={20} />
+            <h3>Programa de Fidelidade</h3>
+          </div>
+          <div className="loyalty-progress">
+            <div className="loyalty-total">
+              <span className="loyalty-num">{totalAttended}</span>
+              <span className="loyalty-label">sessões frequentadas</span>
+            </div>
+            <div className="loyalty-level">
+              <span className="level-name">
+                {totalAttended < 10 ? 'Iniciante' : totalAttended < 25 ? 'Praticante' : totalAttended < 50 ? 'Dedicado' : totalAttended < 100 ? 'Avançado' : 'Mestre Yogui'}
+              </span>
+              <div className="level-bar">
+                <div className="level-fill" style={{
+                  width: `${Math.min(100, totalAttended < 10 ? (totalAttended / 10) * 100 : totalAttended < 25 ? ((totalAttended - 10) / 15) * 100 : totalAttended < 50 ? ((totalAttended - 25) / 25) * 100 : totalAttended < 100 ? ((totalAttended - 50) / 50) * 100 : 100)}%`
+                }} />
+              </div>
+              <span className="level-next">
+                {totalAttended < 10 ? `${10 - totalAttended} sessões para Praticante` : totalAttended < 25 ? `${25 - totalAttended} para Dedicado` : totalAttended < 50 ? `${50 - totalAttended} para Avançado` : totalAttended < 100 ? `${100 - totalAttended} para Mestre` : 'Nível máximo!'}
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <style>{`
@@ -185,7 +224,18 @@ export function ClientDashboard() {
         .dash-link { display: flex; align-items: center; gap: 0.375rem; font-size: 0.875rem; color: var(--primary); font-weight: 500; margin-top: auto; padding-top: 1rem; text-decoration: none; transition: gap var(--transition-fast); }
         .dash-link:hover { gap: 0.625rem; }
 
-        @media (max-width: 768px) { .dashboard-grid { grid-template-columns: 1fr; } }
+        .loyalty-card { background: linear-gradient(135deg, #faf8f5 0%, #f0ebe3 100%) !important; }
+        .loyalty-progress { display: flex; align-items: center; gap: 1.5rem; }
+        .loyalty-total { text-align: center; min-width: 80px; }
+        .loyalty-num { font-size: 2.5rem; font-weight: 700; font-family: var(--font-heading); color: var(--primary-dark); display: block; line-height: 1; }
+        .loyalty-label { font-size: 0.6875rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+        .loyalty-level { flex: 1; }
+        .level-name { font-weight: 600; font-size: 1.0625rem; color: var(--primary-dark); display: block; margin-bottom: 0.5rem; }
+        .level-bar { height: 8px; background: var(--sand); border-radius: var(--radius-full); overflow: hidden; margin-bottom: 0.375rem; }
+        .level-fill { height: 100%; background: var(--primary-gradient); border-radius: var(--radius-full); transition: width 0.6s ease; }
+        .level-next { font-size: 0.75rem; color: var(--text-muted); }
+
+        @media (max-width: 768px) { .dashboard-grid { grid-template-columns: 1fr; } .loyalty-progress { flex-direction: column; text-align: center; } }
       `}</style>
     </div>
   );

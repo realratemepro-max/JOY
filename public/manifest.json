@@ -1,0 +1,24 @@
+{
+  "name": "JOY - Joaquim Oliveira Yoga",
+  "short_name": "JOY",
+  "description": "Aulas particulares de Vinyasa Yoga",
+  "start_url": "/app",
+  "display": "standalone",
+  "background_color": "#faf8f5",
+  "theme_color": "#7c9a72",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
