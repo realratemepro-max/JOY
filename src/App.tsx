@@ -25,6 +25,7 @@ import { AdminPayments } from './pages/admin/AdminPayments';
 import { AdminTestimonials } from './pages/admin/AdminTestimonials';
 import { AdminSubscriptions } from './pages/admin/AdminSubscriptions';
 import { AdminSessions } from './pages/admin/AdminSessions';
+import { AdminEvents } from './pages/admin/AdminEvents';
 
 // Client Portal Pages
 import { ClientDashboard } from './pages/app/ClientDashboard';
@@ -32,6 +33,7 @@ import { ClientPlan } from './pages/app/ClientPlan';
 import { ClientSessions } from './pages/app/ClientSessions';
 import { ClientPayments } from './pages/app/ClientPayments';
 import { ClientProfile } from './pages/app/ClientProfile';
+import { ClientEvents } from './pages/app/ClientEvents';
 
 // Route Guards
 function AdminRoute({ children }: { children: React.ReactNode }) {
@@ -78,6 +80,7 @@ function AppRoutes() {
       <Route path="/app/sessions" element={<ClientRoute><ClientSessions /></ClientRoute>} />
       <Route path="/app/payments" element={<ClientRoute><ClientPayments /></ClientRoute>} />
       <Route path="/app/profile" element={<ClientRoute><ClientProfile /></ClientRoute>} />
+      <Route path="/app/events" element={<ClientRoute><ClientEvents /></ClientRoute>} />
 
       {/* Admin */}
       <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
@@ -90,6 +93,7 @@ function AppRoutes() {
       <Route path="/admin/payments" element={<AdminRoute><AdminPayments /></AdminRoute>} />
       <Route path="/admin/site-settings" element={<AdminRoute><AdminSiteSettings /></AdminRoute>} />
       <Route path="/admin/testimonials" element={<AdminRoute><AdminTestimonials /></AdminRoute>} />
+      <Route path="/admin/events" element={<AdminRoute><AdminEvents /></AdminRoute>} />
 
       {/* 404 */}
       <Route path="*" element={

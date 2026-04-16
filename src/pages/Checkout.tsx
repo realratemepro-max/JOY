@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { useAuth } from '../context/AuthContext';
-import { Plan } from '../types';
+import { Plan, YogaEvent } from '../types';
 import { createMbWayPayment, createMultibancoPayment } from '../services/eupago';
 import { validatePromoCode } from '../services/promoCode';
 import {
@@ -18,8 +18,11 @@ export function Checkout() {
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const planId = searchParams.get('plan');
+  const eventId = searchParams.get('event');
+  const isEvent = !!eventId;
 
   const [service, setService] = useState<Plan | null>(null);
+  const [event, setEvent] = useState<YogaEvent | null>(null);
   const [loading, setLoading] = useState(true);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -44,12 +47,28 @@ export function Checkout() {
   } | null>(null);
 
   useEffect(() => {
-    if (!planId) {
+    if (!planId && !eventId) {
       navigate('/');
       return;
     }
-    loadService();
-  }, [planId]);
+    if (eventId) {
+      loadEvent();
+    } else {
+      loadService();
+    }
+  }, [planId, eventId]);
+
+  const loadEvent = async () => {
+    try {
+      setLoading(true);
+      const eventDoc = await getDoc(doc(db, 'events', eventId!));
+      if (!eventDoc.exists()) { setError('Evento não encontrado'); return; }
+      const data = eventDoc.data();
+      setEvent({ id: eventDoc.id, ...data, date: data.date?.toDate(), createdAt: data.createdAt?.toDate(), updatedAt: data.updatedAt?.toDate() } as YogaEvent);
+      if (!data.isActive) setError('Este evento não está disponível');
+    } catch (err) { console.error(err); setError('Erro ao carregar evento'); }
+    finally { setLoading(false); }
+  };
 
   useEffect(() => {
     if (user?.email) setClientEmail(user.email);
@@ -84,8 +103,8 @@ export function Checkout() {
     try {
       setValidatingPromo(true);
       setPromoError(null);
-      const amount = service.priceMonthly || (service as any).price || 0;
-      const result = await validatePromoCode({ code: promoCode, planId: service.id, amount });
+      const checkId = isEvent ? event!.id : service!.id;
+      const result = await validatePromoCode({ code: promoCode, planId: checkId, amount: itemPrice });
       if (result.valid) {
         setPromoValid(true);
         setPromoDiscount({
@@ -114,7 +133,7 @@ export function Checkout() {
   };
 
   const handlePayment = async () => {
-    if (!service || !paymentMethod) return;
+    if ((!service && !event) || !paymentMethod) return;
     if (!clientEmail) { setError('Por favor insere o teu email'); return; }
     if (paymentMethod === 'mbway' && phoneNumber.length < 9) {
       setError('Por favor, insere um número de telefone válido');
@@ -124,13 +143,12 @@ export function Checkout() {
     try {
       setProcessing(true);
       setError(null);
-      const basePrice = service.priceMonthly || (service as any).price || 0;
-      const finalAmount = promoDiscount ? promoDiscount.finalAmount : basePrice;
+      const finalAmount = promoDiscount ? promoDiscount.finalAmount : itemPrice;
       const userId = user?.uid || 'guest_' + Date.now();
 
       if (paymentMethod === 'mbway') {
         const result = await createMbWayPayment({
-          planId: service.id,
+          planId: isEvent ? event!.id : service!.id,
           amount: finalAmount,
           phoneNumber,
           userEmail: clientEmail,
@@ -143,7 +161,7 @@ export function Checkout() {
         }
       } else {
         const result = await createMultibancoPayment({
-          planId: service.id,
+          planId: isEvent ? event!.id : service!.id,
           amount: finalAmount,
           userEmail: clientEmail,
           userId,
@@ -185,7 +203,16 @@ export function Checkout() {
     );
   }
 
-  if (!service) return null;
+  // For events, use event data; for plans, use service data
+  const itemName = isEvent ? event?.name : service?.name;
+  const itemDesc = isEvent ? event?.description : service?.description;
+  const itemPrice = isEvent ? (event?.price || 0) : (service?.priceMonthly || (service as any)?.price || 0);
+  const itemFeatures = isEvent ? (event?.features || []) : (service?.features || []);
+  const itemPriceLabel = isEvent
+    ? `${event?.date?.toLocaleDateString('pt-PT', { day: 'numeric', month: 'long' })} · ${event?.startTime}-${event?.endTime}`
+    : (service?.sessionsPerWeek ? `${service.sessionsPerWeek}x/sem · ${service.sessionDuration}min · /mês` : (service as any)?.duration || '');
+
+  if (!service && !event) return null;
 
   return (
     <div className="checkout-page">
@@ -200,19 +227,22 @@ export function Checkout() {
             <h2>Resumo</h2>
             <div className="plan-details">
               <div className="plan-header">
-                <h3>{service.name}</h3>
-                <p className="plan-description">{service.description}</p>
+                <h3>{itemName}</h3>
+                <p className="plan-description">{itemDesc}</p>
                 <div className="plan-price">
-                  <span className="amount">{(service.priceMonthly || (service as any).price || 0).toFixed(2).replace('.', ',')}€</span>
-                  <span className="period">{service.sessionsPerWeek ? `${service.sessionsPerWeek}x/sem · ${service.sessionDuration}min · /mês` : (service as any).duration || ''}</span>
+                  <span className="amount">{itemPrice.toFixed(2).replace('.', ',')}€</span>
+                  <span className="period">{itemPriceLabel}</span>
                 </div>
+                {isEvent && event?.locationName && (
+                  <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>{event.locationName}</p>
+                )}
               </div>
 
-              {service.features.length > 0 && (
+              {itemFeatures.length > 0 && (
                 <div className="plan-features">
                   <h4>Incluído:</h4>
                   <ul>
-                    {service.features.map((f, i) => (
+                    {itemFeatures.map((f, i) => (
                       <li key={i}><CheckCircle size={16} />{f}</li>
                     ))}
                   </ul>
@@ -248,7 +278,7 @@ export function Checkout() {
               <div className="payment-total">
                 {promoDiscount && (
                   <>
-                    <div className="subtotal-row"><span>Subtotal</span><span>{(service.priceMonthly || (service as any).price || 0).toFixed(2).replace('.', ',')}€</span></div>
+                    <div className="subtotal-row"><span>Subtotal</span><span>{itemPrice.toFixed(2).replace('.', ',')}€</span></div>
                     <div className="discount-row">
                       <span>Desconto ({promoDiscount.discountType === 'percentage' ? `${promoDiscount.discountValue}%` : `${promoDiscount.discountValue}€`})</span>
                       <span className="discount-amount">-{promoDiscount.discountAmount.toFixed(2).replace('.', ',')}€</span>
@@ -257,7 +287,7 @@ export function Checkout() {
                 )}
                 <div className="total-row">
                   <span>Total</span>
-                  <span className="total-amount">{(promoDiscount ? promoDiscount.finalAmount : (service.priceMonthly || (service as any).price || 0)).toFixed(2).replace('.', ',')}€</span>
+                  <span className="total-amount">{(promoDiscount ? promoDiscount.finalAmount : itemPrice).toFixed(2).replace('.', ',')}€</span>
                 </div>
               </div>
             </div>

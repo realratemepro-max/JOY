@@ -25,6 +25,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     { path: '/admin/sessions', icon: CalendarDays, label: 'Sessões' },
     { path: '/admin/clients', icon: Users, label: 'Clientes' },
     { path: '/admin/payments', icon: CreditCard, label: 'Pagamentos' },
+    { path: '/admin/events', icon: CalendarDays, label: 'Eventos' },
     { path: '/admin/site-settings', icon: Settings, label: 'Site / Conteúdo' },
     { path: '/admin/testimonials', icon: MessageSquare, label: 'Testemunhos' },
   ];

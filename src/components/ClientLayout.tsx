@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   LayoutDashboard, Calendar, CreditCard, UserCircle,
-  ClipboardList, LogOut, Menu, X, ChevronRight
+  ClipboardList, LogOut, Menu, X, ChevronRight, CalendarDays
 } from 'lucide-react';
 
 interface ClientLayoutProps {
@@ -21,6 +21,7 @@ export function ClientLayout({ children }: ClientLayoutProps) {
     { path: '/app/plan', icon: ClipboardList, label: 'Meu Plano' },
     { path: '/app/sessions', icon: Calendar, label: 'Sessões' },
     { path: '/app/payments', icon: CreditCard, label: 'Pagamentos' },
+    { path: '/app/events', icon: CalendarDays, label: 'Eventos' },
     { path: '/app/profile', icon: UserCircle, label: 'Perfil' },
   ];
 
