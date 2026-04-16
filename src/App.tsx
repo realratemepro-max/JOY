@@ -3,10 +3,12 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LoadingSpinner } from './components/LoadingSpinner';
 import { AdminLayout } from './components/AdminLayout';
+import { ClientLayout } from './components/ClientLayout';
 
 // Public Pages
 import { LandingPage } from './pages/LandingPage';
 import { Login } from './pages/Login';
+import { Register } from './pages/Register';
 import { Checkout } from './pages/Checkout';
 import { PaymentSuccess } from './pages/PaymentSuccess';
 import { PaymentFailed } from './pages/PaymentFailed';
@@ -22,6 +24,14 @@ import { AdminClients } from './pages/admin/AdminClients';
 import { AdminPayments } from './pages/admin/AdminPayments';
 import { AdminTestimonials } from './pages/admin/AdminTestimonials';
 
+// Client Portal Pages
+import { ClientDashboard } from './pages/app/ClientDashboard';
+import { ClientPlan } from './pages/app/ClientPlan';
+import { ClientSessions } from './pages/app/ClientSessions';
+import { ClientPayments } from './pages/app/ClientPayments';
+import { ClientProfile } from './pages/app/ClientProfile';
+
+// Route Guards
 function AdminRoute({ children }: { children: React.ReactNode }) {
   const { user, isAdmin, loading } = useAuth();
   if (loading) return <LoadingSpinner fullPage />;
@@ -30,10 +40,19 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   return <AdminLayout>{children}</AdminLayout>;
 }
 
-function GuestRoute({ children }: { children: React.ReactNode }) {
+function ClientRoute({ children }: { children: React.ReactNode }) {
   const { user, isAdmin, loading } = useAuth();
   if (loading) return <LoadingSpinner fullPage />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (isAdmin) return <Navigate to="/admin" replace />;
+  return <ClientLayout>{children}</ClientLayout>;
+}
+
+function GuestRoute({ children }: { children: React.ReactNode }) {
+  const { user, isAdmin, isClient, loading } = useAuth();
+  if (loading) return <LoadingSpinner fullPage />;
   if (user && isAdmin) return <Navigate to="/admin" replace />;
+  if (user && isClient) return <Navigate to="/app" replace />;
   return <>{children}</>;
 }
 
@@ -49,6 +68,14 @@ function AppRoutes() {
 
       {/* Auth */}
       <Route path="/login" element={<GuestRoute><Login /></GuestRoute>} />
+      <Route path="/register" element={<GuestRoute><Register /></GuestRoute>} />
+
+      {/* Client Portal */}
+      <Route path="/app" element={<ClientRoute><ClientDashboard /></ClientRoute>} />
+      <Route path="/app/plan" element={<ClientRoute><ClientPlan /></ClientRoute>} />
+      <Route path="/app/sessions" element={<ClientRoute><ClientSessions /></ClientRoute>} />
+      <Route path="/app/payments" element={<ClientRoute><ClientPayments /></ClientRoute>} />
+      <Route path="/app/profile" element={<ClientRoute><ClientProfile /></ClientRoute>} />
 
       {/* Admin */}
       <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Lock, Mail, ArrowLeft, Loader } from 'lucide-react';
 
@@ -17,7 +17,7 @@ export function Login() {
       setLoading(true);
       clearError();
       await login(email, password);
-      navigate('/admin');
+      // Redirect happens automatically via GuestRoute
     } catch {
       // error handled by context
     } finally {
@@ -89,6 +89,10 @@ export function Login() {
           <button type="button" onClick={handleReset} className="forgot-link" disabled={!email}>
             Esqueci a password
           </button>
+
+          <p className="register-link">
+            Não tens conta? <Link to="/register">Regista-te aqui</Link>
+          </p>
         </form>
       </div>
 
@@ -187,6 +191,18 @@ export function Login() {
 
         .forgot-link:hover:not(:disabled) {
           color: var(--primary);
+        }
+
+        .register-link {
+          text-align: center;
+          font-size: 0.875rem;
+          color: var(--text-secondary);
+          margin-top: 1rem;
+        }
+
+        .register-link a {
+          color: var(--primary);
+          font-weight: 500;
         }
 
         .forgot-link:disabled {
