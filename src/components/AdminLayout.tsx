@@ -3,7 +3,8 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   LayoutDashboard, Settings, Package, Users, CreditCard,
-  MessageSquare, LogOut, Menu, X, ChevronRight
+  MessageSquare, LogOut, Menu, X, ChevronRight, MapPin,
+  CalendarDays, ClipboardList
 } from 'lucide-react';
 
 interface AdminLayoutProps {
@@ -18,10 +19,13 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
   const menuItems = [
     { path: '/admin', icon: LayoutDashboard, label: 'Dashboard' },
-    { path: '/admin/site-settings', icon: Settings, label: 'Site / Conteúdo' },
-    { path: '/admin/services', icon: Package, label: 'Serviços / Preços' },
+    { path: '/admin/locations', icon: MapPin, label: 'Espaços' },
+    { path: '/admin/plans', icon: Package, label: 'Planos' },
+    { path: '/admin/subscriptions', icon: ClipboardList, label: 'Subscrições' },
+    { path: '/admin/sessions', icon: CalendarDays, label: 'Sessões' },
     { path: '/admin/clients', icon: Users, label: 'Clientes' },
     { path: '/admin/payments', icon: CreditCard, label: 'Pagamentos' },
+    { path: '/admin/site-settings', icon: Settings, label: 'Site / Conteúdo' },
     { path: '/admin/testimonials', icon: MessageSquare, label: 'Testemunhos' },
   ];
 

@@ -30,7 +30,7 @@ export interface SiteConfig {
   vinyasaText: string;
   vinyasaBenefits: string[];
 
-  // Services Section
+  // Services/Plans Section
   servicesLabel: string;
   servicesTitle: string;
   servicesSubtitle: string;
@@ -72,20 +72,153 @@ export interface SiteConfig {
   updatedAt: Date;
 }
 
-// ============ Services / Packages ============
-export interface YogaService {
+// ============ Locations (Espaços) ============
+export interface Location {
+  id: string;
+  name: string;
+  address: string;
+  description: string;
+  photoUrl?: string;
+  costPerSession: number; // Internal: Joaquim's cost
+  capacity: number;
+  amenities: string[];
+  mapUrl?: string;
+  isActive: boolean;
+  order: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ============ Plans (Planos de Aulas) ============
+export interface ScheduleSlot {
+  dayOfWeek: number; // 0=Dom, 1=Seg, 2=Ter, 3=Qua, 4=Qui, 5=Sex, 6=Sáb
+  startTime: string; // "09:00"
+  endTime: string;   // "10:00"
+}
+
+export interface Plan {
   id: string;
   name: string;
   description: string;
   longDescription?: string;
-  price: number;
-  duration: string; // e.g. "60 min", "Pack 5 aulas"
-  sessions?: number; // number of sessions in pack
-  type: 'single' | 'pack' | 'monthly';
-  isPopular?: boolean;
-  isActive: boolean;
+  locationId: string;
+  locationName: string; // Denormalized
+  sessionsPerWeek: number; // 1, 2, 3...
+  sessionDuration: number; // in minutes
+  priceMonthly: number;
+  schedule: ScheduleSlot[];
+  type: 'private' | 'group';
+  maxStudents?: number;
   features: string[];
+  isPopular: boolean;
+  isActive: boolean;
   order: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ============ Subscriptions (Subscrições de Clientes) ============
+export type SubscriptionStatus = 'active' | 'paused' | 'cancelled' | 'expired' | 'pending_payment';
+
+export interface Subscription {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  planId: string;
+  planName: string;
+  locationId: string;
+  locationName: string;
+  sessionsPerWeek: number;
+  priceMonthly: number;
+  status: SubscriptionStatus;
+  startDate: Date;
+  endDate?: Date;
+  currentPeriodStart: Date;
+  currentPeriodEnd: Date;
+  sessionsUsedThisPeriod: number;
+  sessionsAllowedThisPeriod: number;
+  lastPaymentId?: string;
+  nextPaymentDue?: Date;
+  cancelledAt?: Date;
+  pausedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ============ Sessions (Aulas Concretas) ============
+export type AttendanceStatus = 'enrolled' | 'attended' | 'absent' | 'cancelled';
+export type SessionType = 'regular' | 'makeup' | 'extra' | 'event';
+export type SessionStatus = 'scheduled' | 'completed' | 'cancelled';
+
+export interface SessionStudent {
+  userId: string;
+  userName: string;
+  subscriptionId?: string;
+  status: AttendanceStatus;
+}
+
+export interface Session {
+  id: string;
+  planId?: string;
+  locationId: string;
+  locationName: string;
+  date: Date;
+  startTime: string;
+  endTime: string;
+  dayOfWeek: number;
+  enrolledStudents: SessionStudent[];
+  maxCapacity: number;
+  type: SessionType;
+  eventId?: string; // V2
+  status: SessionStatus;
+  notes?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ============ Events (V2) ============
+export interface YogaEvent {
+  id: string;
+  name: string;
+  description: string;
+  longDescription?: string;
+  photoUrl?: string;
+  locationId: string;
+  locationName: string;
+  date: Date;
+  startTime: string;
+  endTime: string;
+  price: number;
+  capacity: number;
+  enrolledCount: number;
+  features: string[];
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ============ Users ============
+export type UserRole = 'admin' | 'client';
+export type UserExperience = 'beginner' | 'intermediate' | 'advanced';
+export type UserStatus = 'active' | 'inactive' | 'lead';
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  phone?: string;
+  photoUrl?: string;
+  dateOfBirth?: string;
+  emergencyContact?: string;
+  goals?: string;
+  injuries?: string;
+  experience?: UserExperience;
+  notes?: string; // Admin-only notes
+  activePlanId?: string;
+  activePlanName?: string;
+  status: UserStatus;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -102,7 +235,75 @@ export interface Testimonial {
   createdAt: Date;
 }
 
-// ============ Clients / Leads ============
+// ============ Payments ============
+export type PaymentMethod = 'MBWay' | 'Multibanco' | 'CreditCard';
+export type PaymentStatus = 'Pending' | 'Paid' | 'Failed' | 'Expired' | 'Cancelled';
+export type PaymentType = 'plan_subscription' | 'event_booking' | 'single_class';
+
+export interface Payment {
+  id: string;
+  userId?: string;
+  userEmail: string;
+  amount: number;
+  method: PaymentMethod;
+  status: PaymentStatus;
+  identifier: string;
+
+  // What was paid for
+  type?: PaymentType;
+  plan?: string; // Legacy compatibility
+  planId?: string;
+  planName?: string;
+  locationId?: string;
+  locationName?: string;
+  eventId?: string; // V2
+  billingPeriodStart?: Date;
+  billingPeriodEnd?: Date;
+
+  // EuPago
+  eupagoTransactionId?: string;
+  eupagoReference?: string;
+  entity?: string;
+  reference?: string;
+  eupagoResponse?: any;
+  userPhone?: string;
+
+  // Promo
+  promoCodeId?: string;
+  discountAmount?: number;
+
+  // Legacy fields
+  serviceId?: string;
+  serviceName?: string;
+  isUpgrade?: boolean;
+  previousPlan?: string;
+  clientId?: string;
+
+  createdAt: Date;
+  updatedAt: Date;
+  paidAt?: Date;
+  expiresAt?: Date;
+}
+
+// ============ Legacy: Services (deprecated, kept for migration) ============
+export interface YogaService {
+  id: string;
+  name: string;
+  description: string;
+  longDescription?: string;
+  price: number;
+  duration: string;
+  sessions?: number;
+  type: 'single' | 'pack' | 'monthly';
+  isPopular?: boolean;
+  isActive: boolean;
+  features: string[];
+  order: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ============ Legacy: Client (deprecated, replaced by User with role='client') ============
 export interface Client {
   id: string;
   name: string;
@@ -116,66 +317,6 @@ export interface Client {
   createdAt: Date;
   updatedAt: Date;
 }
-
-// ============ Bookings ============
-export interface Booking {
-  id: string;
-  clientId: string;
-  clientName: string;
-  clientEmail: string;
-  serviceId: string;
-  serviceName: string;
-  date?: Date;
-  status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
-  paymentId?: string;
-  amount: number;
-  notes?: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-// ============ Payments ============
-export type PaymentMethod = 'MBWay' | 'Multibanco' | 'CreditCard';
-export type PaymentStatus = 'Pending' | 'Paid' | 'Failed' | 'Expired' | 'Cancelled';
-
-export interface Payment {
-  id: string;
-  userId?: string;
-  clientId?: string;
-  userEmail: string;
-  plan: string;
-  amount: number;
-  method: PaymentMethod;
-  status: PaymentStatus;
-  identifier: string;
-  eupagoTransactionId?: string;
-  eupagoReference?: string;
-  entity?: string;
-  reference?: string;
-  eupagoResponse?: any;
-  userPhone?: string;
-  isUpgrade?: boolean;
-  previousPlan?: string;
-  serviceId?: string;
-  serviceName?: string;
-  createdAt: Date;
-  updatedAt: Date;
-  paidAt?: Date;
-  expiresAt?: Date;
-}
-
-// ============ User (Admin) ============
-export interface User {
-  id: string;
-  email: string;
-  name: string;
-  role: 'admin' | 'user';
-  plan?: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-export type UserRole = 'admin' | 'user';
 
 // ============ Promo Codes ============
 export interface PromoCode {
@@ -194,20 +335,16 @@ export interface PromoCode {
   updatedAt: Date;
 }
 
-// ============ Pricing Plan (for checkout compatibility) ============
-export interface PricingPlan {
+// ============ Client Resources (V2) ============
+export interface ClientResource {
   id: string;
-  name: string;
-  namePt?: string;
-  priceAnnual: number;
-  priceMonthly?: number;
-  billingPeriod?: string;
+  title: string;
   description?: string;
-  descriptionPt?: string;
-  features: Record<string, any>;
-  isPopular?: boolean;
-  isActive: boolean;
-  savings?: number;
+  type: 'pdf' | 'video' | 'link';
+  url: string;
+  thumbnailUrl?: string;
+  targetUserIds?: string[]; // null = all clients
+  isPublic: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
