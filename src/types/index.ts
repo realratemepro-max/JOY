@@ -9,22 +9,44 @@ export interface SiteConfig {
   favicon?: string;
 
   // Hero Section
+  heroBadge: string;
   heroTitle: string;
   heroSubtitle: string;
   heroCtaText: string;
   heroCtaLink: string;
+  heroSecondaryText: string;
   heroImage?: string;
 
   // About Section
+  aboutLabel: string;
   aboutTitle: string;
   aboutText: string;
   aboutImage?: string;
   aboutHighlights: string[];
 
   // Vinyasa Section
+  vinyasaLabel: string;
   vinyasaTitle: string;
   vinyasaText: string;
   vinyasaBenefits: string[];
+
+  // Services Section
+  servicesLabel: string;
+  servicesTitle: string;
+  servicesSubtitle: string;
+
+  // Testimonials Section
+  testimonialsLabel: string;
+  testimonialsTitle: string;
+
+  // Contact Section
+  contactLabel: string;
+  contactTitle: string;
+  contactSubtitle: string;
+  contactCtaTitle: string;
+  contactCtaText: string;
+  contactEmailButton: string;
+  contactPhoneButton: string;
 
   // Contact Info
   email: string;

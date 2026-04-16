@@ -69,7 +69,7 @@ export function LandingPage() {
       <section className="hero">
         <div className="hero-overlay" />
         <div className="hero-content animate-slideUp">
-          <span className="hero-badge">Vinyasa Yoga</span>
+          <span className="hero-badge">{config.heroBadge}</span>
           <h1>{config.heroTitle}</h1>
           <p className="hero-subtitle">{config.heroSubtitle}</p>
           <div className="hero-buttons">
@@ -78,7 +78,7 @@ export function LandingPage() {
               <ChevronRight size={20} />
             </a>
             <a href="#sobre" className="btn btn-hero-secondary btn-lg">
-              Saber Mais
+              {config.heroSecondaryText}
             </a>
           </div>
           <a href="#sobre" className="scroll-indicator">
@@ -111,7 +111,7 @@ export function LandingPage() {
               </div>
             </div>
             <div className="about-text-col">
-              <span className="section-label">Sobre Mim</span>
+              <span className="section-label">{config.aboutLabel}</span>
               <h2>{config.aboutTitle}</h2>
               <div className="divider divider-left" />
               {config.aboutText.split('\n\n').map((paragraph, i) => (
@@ -125,7 +125,7 @@ export function LandingPage() {
       {/* VINYASA SECTION */}
       <section id="vinyasa" className="section vinyasa-section">
         <div className="container">
-          <span className="section-label text-center">A Prática</span>
+          <span className="section-label text-center">{config.vinyasaLabel}</span>
           <h2 className="section-title">{config.vinyasaTitle}</h2>
           <div className="divider" />
           <p className="section-subtitle">{config.vinyasaText}</p>
@@ -149,12 +149,10 @@ export function LandingPage() {
       {/* SERVICES SECTION */}
       <section id="servicos" className="section services-section">
         <div className="container">
-          <span className="section-label text-center">Aulas Particulares</span>
-          <h2 className="section-title">Escolhe o Teu Plano</h2>
+          <span className="section-label text-center">{config.servicesLabel}</span>
+          <h2 className="section-title">{config.servicesTitle}</h2>
           <div className="divider" />
-          <p className="section-subtitle">
-            Cada aula é totalmente personalizada e adaptada ao teu nível, objetivos e necessidades.
-          </p>
+          <p className="section-subtitle">{config.servicesSubtitle}</p>
 
           {services.length > 0 ? (
             <div className="services-grid">
@@ -193,8 +191,8 @@ export function LandingPage() {
       {testimonials.length > 0 && (
         <section id="testemunhos" className="section testimonials-section">
           <div className="container">
-            <span className="section-label text-center">Testemunhos</span>
-            <h2 className="section-title">O que dizem os meus alunos</h2>
+            <span className="section-label text-center">{config.testimonialsLabel}</span>
+            <h2 className="section-title">{config.testimonialsTitle}</h2>
             <div className="divider" />
 
             <div className="testimonials-grid">
@@ -228,13 +226,10 @@ export function LandingPage() {
         <div className="container">
           <div className="contact-grid">
             <div className="contact-info">
-              <span className="section-label">Contacto</span>
-              <h2>Pronto para começar?</h2>
+              <span className="section-label">{config.contactLabel}</span>
+              <h2>{config.contactTitle}</h2>
               <div className="divider divider-left" />
-              <p>
-                Marca a tua primeira aula experimental e descobre como o Vinyasa Yoga
-                pode transformar a tua vida. Não é preciso experiência prévia.
-              </p>
+              <p>{config.contactSubtitle}</p>
               <div className="contact-details">
                 {config.phone && (
                   <a href={`tel:${config.phone}`} className="contact-item">
@@ -263,14 +258,14 @@ export function LandingPage() {
               </div>
             </div>
             <div className="contact-cta-card">
-              <h3>Aula Experimental</h3>
-              <p>Agenda a tua primeira sessão e sente a diferença do acompanhamento personalizado.</p>
-              <a href={`mailto:${config.email}?subject=Aula Experimental de Yoga`} className="btn btn-primary btn-lg w-full">
-                Enviar Email
+              <h3>{config.contactCtaTitle}</h3>
+              <p>{config.contactCtaText}</p>
+              <a href={`mailto:${config.email}?subject=${config.contactCtaTitle}`} className="btn btn-primary btn-lg w-full">
+                {config.contactEmailButton}
               </a>
               {config.phone && (
                 <a href={`tel:${config.phone}`} className="btn btn-outline btn-lg w-full">
-                  Ligar Agora
+                  {config.contactPhoneButton}
                 </a>
               )}
             </div>

@@ -1,0 +1,79 @@
+// Firestore Security Rules - Copy these to your Firebase Console
+// Go to: Firebase Console > Firestore Database > Rules
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // Professionals collection
+    match /professionals/{professionalId} {
+      // Anyone can read active profiles
+      allow read: if resource.data.isActive == true || isOwner(professionalId) || isAdmin();
+
+      // Only the owner can create their own profile
+      allow create: if isOwner(professionalId);
+
+      // Owner or admin can update
+      allow update: if isOwner(professionalId) || isAdmin();
+
+      // Only admin can delete
+      allow delete: if isAdmin();
+    }
+
+    // Feedbacks collection
+    match /feedbacks/{feedbackId} {
+      // Anyone can read public feedbacks
+      allow read: if resource.data.isPublic == true || isAdmin();
+
+      // Anyone can create feedback (no auth required for reviews)
+      allow create: if true;
+
+      // Only admin can update/delete feedbacks
+      allow update, delete: if isAdmin();
+    }
+
+    // Admins collection
+    match /admins/{adminId} {
+      // Only admins can read admin list
+      allow read: if isAdmin() || isOwner(adminId);
+
+      // Only existing admins can create new admins
+      allow write: if isAdmin();
+    }
+  }
+}
+
+// Storage Security Rules - Copy these to your Firebase Console
+// Go to: Firebase Console > Storage > Rules
+
+/*
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Avatar images
+    match /avatars/{userId}/{fileName} {
+      // Anyone can read avatars
+      allow read: if true;
+
+      // Only authenticated user can upload their own avatar
+      allow write: if request.auth != null
+                   && request.auth.uid == userId
+                   && request.resource.size < 5 * 1024 * 1024  // Max 5MB
+                   && request.resource.contentType.matches('image/.*');
+    }
+  }
+}
+*/

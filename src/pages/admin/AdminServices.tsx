@@ -117,9 +117,21 @@ export function AdminServices() {
           </div>
 
           <div className="form-group">
-            <label className="label">Descrição</label>
+            <label className="label">Descrição curta</label>
             <textarea className="input textarea" rows={2} value={editData.description} onChange={e => setEditData({ ...editData, description: e.target.value })} />
           </div>
+
+          <div className="form-group">
+            <label className="label">Descrição detalhada (opcional)</label>
+            <textarea className="input textarea" rows={3} value={editData.longDescription || ''} onChange={e => setEditData({ ...editData, longDescription: e.target.value })} placeholder="Descrição mais completa do serviço..." />
+          </div>
+
+          {editData.type === 'pack' && (
+            <div className="form-group">
+              <label className="label">Número de sessões no pack</label>
+              <input className="input" type="number" value={editData.sessions || ''} onChange={e => setEditData({ ...editData, sessions: e.target.value })} placeholder="5" style={{ width: 120 }} />
+            </div>
+          )}
 
           <div className="form-group">
             <label className="label">Características incluídas</label>

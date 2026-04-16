@@ -1,16 +1,33 @@
 import React, { useEffect, useState } from 'react';
-import { collection, getDocs, query, orderBy } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, query, orderBy } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { Payment } from '../../types';
-import { Search, Download, Filter } from 'lucide-react';
+import { Search, Download, Filter, Edit2, Save, X, Loader } from 'lucide-react';
 
 export function AdminPayments() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editStatus, setEditStatus] = useState<string>('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => { loadPayments(); }, []);
+
+  const handleUpdateStatus = async (paymentId: string) => {
+    try {
+      setSaving(true);
+      await updateDoc(doc(db, 'payments', paymentId), {
+        status: editStatus,
+        updatedAt: new Date(),
+        ...(editStatus === 'Paid' ? { paidAt: new Date() } : {}),
+      });
+      await loadPayments();
+      setEditingId(null);
+    } catch (err) { console.error('Error updating payment:', err); }
+    finally { setSaving(false); }
+  };
 
   const loadPayments = async () => {
     try {
@@ -76,6 +93,7 @@ export function AdminPayments() {
                   <th>Método</th>
                   <th>Status</th>
                   <th>Referência</th>
+                  <th>Ações</th>
                 </tr>
               </thead>
               <tbody>
@@ -87,11 +105,32 @@ export function AdminPayments() {
                     <td style={{ fontWeight: 600 }}>{(p.amount || 0).toFixed(2).replace('.', ',')}€</td>
                     <td>{p.method}</td>
                     <td>
-                      <span className={`badge badge-${p.status === 'Paid' ? 'success' : p.status === 'Pending' ? 'warning' : 'error'}`}>
-                        {p.status === 'Paid' ? 'Pago' : p.status === 'Pending' ? 'Pendente' : p.status === 'Failed' ? 'Falhado' : p.status}
-                      </span>
+                      {editingId === p.id ? (
+                        <select className="input" style={{ padding: '0.375rem 0.5rem', fontSize: '0.8125rem', width: 'auto' }} value={editStatus} onChange={e => setEditStatus(e.target.value)}>
+                          <option value="Pending">Pendente</option>
+                          <option value="Paid">Pago</option>
+                          <option value="Failed">Falhado</option>
+                          <option value="Cancelled">Cancelado</option>
+                        </select>
+                      ) : (
+                        <span className={`badge badge-${p.status === 'Paid' ? 'success' : p.status === 'Pending' ? 'warning' : 'error'}`}>
+                          {p.status === 'Paid' ? 'Pago' : p.status === 'Pending' ? 'Pendente' : p.status === 'Failed' ? 'Falhado' : p.status}
+                        </span>
+                      )}
                     </td>
                     <td style={{ fontSize: '0.8125rem', fontFamily: 'monospace' }}>{p.identifier}</td>
+                    <td>
+                      {editingId === p.id ? (
+                        <div style={{ display: 'flex', gap: '0.25rem' }}>
+                          <button className="btn btn-sm btn-primary" onClick={() => handleUpdateStatus(p.id)} disabled={saving} style={{ padding: '0.25rem 0.5rem' }}>
+                            {saving ? <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={14} />}
+                          </button>
+                          <button className="btn btn-sm btn-secondary" onClick={() => setEditingId(null)} style={{ padding: '0.25rem 0.5rem' }}><X size={14} /></button>
+                        </div>
+                      ) : (
+                        <button className="btn btn-sm btn-secondary" onClick={() => { setEditingId(p.id); setEditStatus(p.status); }} style={{ padding: '0.25rem 0.5rem' }}><Edit2 size={14} /></button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
