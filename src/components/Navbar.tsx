@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Menu, X } from 'lucide-react';
+import { Menu, X, User, LogIn } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 export function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
   const isHome = location.pathname === '/';
+  const { user, isAdmin, isClient } = useAuth();
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 50);
@@ -42,12 +44,24 @@ export function Navbar() {
           <button onClick={() => scrollToSection('servicos')}>Aulas</button>
           <button onClick={() => scrollToSection('testemunhos')}>Testemunhos</button>
           <button onClick={() => scrollToSection('contacto')}>Contacto</button>
-          <button
-            className="nav-cta"
-            onClick={() => scrollToSection('servicos')}
-          >
-            Reservar Aula
-          </button>
+          {user ? (
+            <Link
+              to={isAdmin ? '/admin' : '/app'}
+              className="nav-cta"
+              onClick={() => setMenuOpen(false)}
+            >
+              <User size={16} /> Minha Conta
+            </Link>
+          ) : (
+            <>
+              <Link to="/login" className="nav-login" onClick={() => setMenuOpen(false)}>
+                <LogIn size={16} /> Entrar
+              </Link>
+              <Link to="/register" className="nav-cta" onClick={() => setMenuOpen(false)}>
+                Registar
+              </Link>
+            </>
+          )}
         </div>
       </div>
 
@@ -156,13 +170,45 @@ export function Navbar() {
           background: rgba(255, 255, 255, 0.15);
         }
 
+        .nav-login {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.375rem;
+          font-size: 0.875rem;
+          font-weight: 500;
+          color: var(--text-secondary);
+          text-decoration: none;
+          padding: 0.5rem 0.75rem;
+          border-radius: var(--radius-md);
+          transition: all var(--transition-fast);
+        }
+
+        .navbar:not(.scrolled) .nav-login {
+          color: rgba(255, 255, 255, 0.85);
+        }
+
+        .nav-login:hover {
+          color: var(--primary);
+          background: rgba(124, 154, 114, 0.08);
+        }
+
+        .navbar:not(.scrolled) .nav-login:hover {
+          color: white;
+          background: rgba(255, 255, 255, 0.15);
+        }
+
         .nav-cta {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.375rem;
           background: var(--primary-gradient) !important;
           color: white !important;
           padding: 0.5rem 1.25rem !important;
           border-radius: var(--radius-full) !important;
+          font-size: 0.875rem;
           font-weight: 500 !important;
-          margin-left: 0.5rem;
+          text-decoration: none;
+          margin-left: 0.25rem;
         }
 
         .nav-cta:hover {
