@@ -10,6 +10,8 @@ const DAY_NAMES_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sex
 const emptyPlan = {
   name: '', description: '', longDescription: '', locationId: '', locationName: '',
   sessionsPerWeek: 1, sessionDuration: 60, priceMonthly: 0,
+  allowDropIn: false, dropInPrice: undefined as number | undefined,
+  allowPack: false, packSessions: undefined as number | undefined, packPrice: undefined as number | undefined,
   schedule: [] as ScheduleSlot[], type: 'private' as const,
   maxStudents: undefined as number | undefined, features: [] as string[],
   isPopular: false, isActive: true, order: 0,
@@ -98,6 +100,11 @@ export function AdminPlans() {
         sessionsPerWeek: Number(editData.sessionsPerWeek),
         sessionDuration: Number(editData.sessionDuration),
         priceMonthly: Number(editData.priceMonthly),
+        allowDropIn: editData.allowDropIn || false,
+        dropInPrice: editData.dropInPrice ? Number(editData.dropInPrice) : null,
+        allowPack: editData.allowPack || false,
+        packSessions: editData.packSessions ? Number(editData.packSessions) : null,
+        packPrice: editData.packPrice ? Number(editData.packPrice) : null,
         maxStudents: editData.maxStudents ? Number(editData.maxStudents) : null,
         order: Number(editData.order),
         createdAt: editing === 'new' ? new Date() : editData.createdAt,
@@ -198,6 +205,43 @@ export function AdminPlans() {
               <input className="input" type="number" value={editData.maxStudents || ''} onChange={e => setEditData({ ...editData, maxStudents: e.target.value })} style={{ width: 120 }} />
             </div>
           )}
+
+          {/* Drop-in + Pack options */}
+          <div className="pricing-options">
+            <h4 style={{ fontFamily: 'var(--font-body)', fontSize: '0.9375rem', fontWeight: 600, margin: '1rem 0 0.75rem', color: 'var(--primary-dark)' }}>Opções de Compra Avulsa</h4>
+            <div className="edit-grid">
+              <div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', marginBottom: '0.5rem' }}>
+                  <input type="checkbox" checked={editData.allowDropIn || false} onChange={e => setEditData({ ...editData, allowDropIn: e.target.checked })} />
+                  <strong>Aula Avulsa (Drop-in)</strong>
+                </label>
+                {editData.allowDropIn && (
+                  <div className="form-group" style={{ marginLeft: '1.5rem' }}>
+                    <label className="label">Preço por sessão (€)</label>
+                    <input className="input" type="number" step="0.01" value={editData.dropInPrice || ''} onChange={e => setEditData({ ...editData, dropInPrice: e.target.value })} placeholder="45" style={{ width: 120 }} />
+                  </div>
+                )}
+              </div>
+              <div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', marginBottom: '0.5rem' }}>
+                  <input type="checkbox" checked={editData.allowPack || false} onChange={e => setEditData({ ...editData, allowPack: e.target.checked })} />
+                  <strong>Pack de Aulas</strong>
+                </label>
+                {editData.allowPack && (
+                  <div style={{ marginLeft: '1.5rem', display: 'flex', gap: '0.75rem' }}>
+                    <div className="form-group">
+                      <label className="label">Nº sessões</label>
+                      <input className="input" type="number" value={editData.packSessions || ''} onChange={e => setEditData({ ...editData, packSessions: e.target.value })} placeholder="5" style={{ width: 80 }} />
+                    </div>
+                    <div className="form-group">
+                      <label className="label">Preço pack (€)</label>
+                      <input className="input" type="number" step="0.01" value={editData.packPrice || ''} onChange={e => setEditData({ ...editData, packPrice: e.target.value })} placeholder="180" style={{ width: 120 }} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
 
           {/* Schedule */}
           <div className="form-group">

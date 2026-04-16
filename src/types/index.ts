@@ -106,6 +106,13 @@ export interface Plan {
   sessionsPerWeek: number; // 1, 2, 3...
   sessionDuration: number; // in minutes
   priceMonthly: number;
+  // Drop-in / single class
+  allowDropIn: boolean;
+  dropInPrice?: number; // Price per single session
+  // Pack options
+  allowPack: boolean;
+  packSessions?: number; // e.g. 5, 10
+  packPrice?: number; // Total pack price
   schedule: ScheduleSlot[];
   type: 'private' | 'group';
   maxStudents?: number;

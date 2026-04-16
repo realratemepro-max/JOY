@@ -196,12 +196,30 @@ export function LandingPage() {
                           <li key={i}><Check size={16} /> {f}</li>
                         ))}
                       </ul>
-                      <Link
-                        to={`/checkout?plan=${plan.id}`}
-                        className={`btn ${plan.isPopular ? 'btn-primary' : 'btn-outline'} w-full`}
-                      >
-                        Subscrever
-                      </Link>
+                      <div className="plan-buttons">
+                        <Link
+                          to={`/checkout?plan=${plan.id}&type=subscription`}
+                          className={`btn ${plan.isPopular ? 'btn-primary' : 'btn-outline'} w-full`}
+                        >
+                          Subscrever {plan.priceMonthly.toFixed(0)}€/mês
+                        </Link>
+                        {plan.allowDropIn && plan.dropInPrice && (
+                          <Link
+                            to={`/checkout?plan=${plan.id}&type=dropin`}
+                            className="btn btn-secondary w-full btn-sm"
+                          >
+                            Aula Avulsa {plan.dropInPrice.toFixed(0)}€
+                          </Link>
+                        )}
+                        {plan.allowPack && plan.packPrice && plan.packSessions && (
+                          <Link
+                            to={`/checkout?plan=${plan.id}&type=pack`}
+                            className="btn btn-secondary w-full btn-sm"
+                          >
+                            Pack {plan.packSessions} aulas {plan.packPrice.toFixed(0)}€
+                          </Link>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -694,6 +712,12 @@ export function LandingPage() {
           color: var(--text-secondary);
           padding: 0.25rem 0.5rem;
           border-radius: var(--radius-full);
+        }
+
+        .plan-buttons {
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
         }
 
         .no-services {

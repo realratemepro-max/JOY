@@ -19,6 +19,7 @@ export function Checkout() {
   const { user } = useAuth();
   const planId = searchParams.get('plan');
   const eventId = searchParams.get('event');
+  const purchaseType = searchParams.get('type') || 'subscription'; // subscription, dropin, pack
   const isEvent = !!eventId;
 
   const [service, setService] = useState<Plan | null>(null);
@@ -206,11 +207,26 @@ export function Checkout() {
   // For events, use event data; for plans, use service data
   const itemName = isEvent ? event?.name : service?.name;
   const itemDesc = isEvent ? event?.description : service?.description;
-  const itemPrice = isEvent ? (event?.price || 0) : (service?.priceMonthly || (service as any)?.price || 0);
   const itemFeatures = isEvent ? (event?.features || []) : (service?.features || []);
-  const itemPriceLabel = isEvent
-    ? `${event?.date?.toLocaleDateString('pt-PT', { day: 'numeric', month: 'long' })} · ${event?.startTime}-${event?.endTime}`
-    : (service?.sessionsPerWeek ? `${service.sessionsPerWeek}x/sem · ${service.sessionDuration}min · /mês` : (service as any)?.duration || '');
+
+  // Calculate price based on purchase type
+  let itemPrice = 0;
+  let itemPriceLabel = '';
+  if (isEvent) {
+    itemPrice = event?.price || 0;
+    itemPriceLabel = `${event?.date?.toLocaleDateString('pt-PT', { day: 'numeric', month: 'long' })} · ${event?.startTime}-${event?.endTime}`;
+  } else if (service) {
+    if (purchaseType === 'dropin' && service.allowDropIn && service.dropInPrice) {
+      itemPrice = service.dropInPrice;
+      itemPriceLabel = `Aula avulsa · ${service.sessionDuration}min`;
+    } else if (purchaseType === 'pack' && service.allowPack && service.packPrice) {
+      itemPrice = service.packPrice;
+      itemPriceLabel = `Pack ${service.packSessions} aulas · ${service.sessionDuration}min`;
+    } else {
+      itemPrice = service.priceMonthly || (service as any)?.price || 0;
+      itemPriceLabel = service.sessionsPerWeek ? `${service.sessionsPerWeek}x/sem · ${service.sessionDuration}min · /mês` : (service as any)?.duration || '';
+    }
+  }
 
   if (!service && !event) return null;
 
