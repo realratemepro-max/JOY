@@ -24,6 +24,7 @@ import { AdminClients } from './pages/admin/AdminClients';
 import { AdminPayments } from './pages/admin/AdminPayments';
 import { AdminTestimonials } from './pages/admin/AdminTestimonials';
 import { AdminSubscriptions } from './pages/admin/AdminSubscriptions';
+import { AdminSessions } from './pages/admin/AdminSessions';
 
 // Client Portal Pages
 import { ClientDashboard } from './pages/app/ClientDashboard';
@@ -83,7 +84,7 @@ function AppRoutes() {
       <Route path="/admin/locations" element={<AdminRoute><AdminLocations /></AdminRoute>} />
       <Route path="/admin/plans" element={<AdminRoute><AdminPlans /></AdminRoute>} />
       <Route path="/admin/subscriptions" element={<AdminRoute><AdminSubscriptions /></AdminRoute>} />
-      <Route path="/admin/sessions" element={<AdminRoute><div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}><h2>Sessões</h2><p>Em desenvolvimento - Fase 4</p></div></AdminRoute>} />
+      <Route path="/admin/sessions" element={<AdminRoute><AdminSessions /></AdminRoute>} />
       <Route path="/admin/services" element={<AdminRoute><AdminServices /></AdminRoute>} />
       <Route path="/admin/clients" element={<AdminRoute><AdminClients /></AdminRoute>} />
       <Route path="/admin/payments" element={<AdminRoute><AdminPayments /></AdminRoute>} />
