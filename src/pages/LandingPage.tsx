@@ -3,18 +3,20 @@ import { Link } from 'react-router-dom';
 import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { getSiteConfig, defaultSiteConfig } from '../services/siteConfig';
-import { SiteConfig, YogaService, Testimonial } from '../types';
+import { SiteConfig, Plan, Testimonial } from '../types';
 import { Navbar } from '../components/Navbar';
 import { Footer } from '../components/Footer';
 import {
   Heart, Wind, Brain, Moon, Shield, Eye, Sparkles, Activity,
   Star, ChevronRight, Phone, Mail, MapPin, Instagram, ArrowDown,
-  Check
+  Check, Calendar, Clock
 } from 'lucide-react';
+
+const DAY_NAMES_SHORT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
 export function LandingPage() {
   const [config, setConfig] = useState<SiteConfig>(defaultSiteConfig);
-  const [services, setServices] = useState<YogaService[]>([]);
+  const [plans, setPlans] = useState<Plan[]>([]);
   const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -24,20 +26,20 @@ export function LandingPage() {
 
   const loadData = async () => {
     try {
-      const [siteConfig, servicesSnap, testimonialsSnap] = await Promise.all([
+      const [siteConfig, plansSnap, testimonialsSnap] = await Promise.all([
         getSiteConfig(),
-        getDocs(query(collection(db, 'services'), where('isActive', '==', true), orderBy('order'))),
+        getDocs(query(collection(db, 'plans'), where('isActive', '==', true), orderBy('order'))),
         getDocs(query(collection(db, 'testimonials'), where('isActive', '==', true), orderBy('order'))),
       ]);
 
       setConfig(siteConfig);
 
-      setServices(servicesSnap.docs.map(d => ({
+      setPlans(plansSnap.docs.map(d => ({
         id: d.id,
         ...d.data(),
         createdAt: d.data().createdAt?.toDate(),
         updatedAt: d.data().updatedAt?.toDate(),
-      } as YogaService)));
+      } as Plan)));
 
       setTestimonials(testimonialsSnap.docs.map(d => ({
         id: d.id,
@@ -50,6 +52,14 @@ export function LandingPage() {
       setLoading(false);
     }
   };
+
+  // Group plans by location
+  const plansByLocation = plans.reduce((acc, plan) => {
+    const key = plan.locationName || 'Sem espaço';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(plan);
+    return acc;
+  }, {} as Record<string, Plan[]>);
 
   const benefitIcons = [Heart, Wind, Brain, Moon, Shield, Eye, Sparkles, Activity];
 
@@ -154,34 +164,52 @@ export function LandingPage() {
           <div className="divider" />
           <p className="section-subtitle">{config.servicesSubtitle}</p>
 
-          {services.length > 0 ? (
-            <div className="services-grid">
-              {services.map(service => (
-                <div key={service.id} className={`service-card ${service.isPopular ? 'popular' : ''}`}>
-                  {service.isPopular && <span className="popular-badge">Mais Popular</span>}
-                  <h3>{service.name}</h3>
-                  <p className="service-desc">{service.description}</p>
-                  <div className="service-price">
-                    <span className="price-amount">{service.price.toFixed(2).replace('.', ',')}€</span>
-                    <span className="price-detail">{service.duration}</span>
-                  </div>
-                  <ul className="service-features">
-                    {service.features.map((f, i) => (
-                      <li key={i}><Check size={16} /> {f}</li>
-                    ))}
-                  </ul>
-                  <Link
-                    to={`/checkout?plan=${service.id}`}
-                    className={`btn ${service.isPopular ? 'btn-primary' : 'btn-outline'} w-full`}
-                  >
-                    Reservar Agora
-                  </Link>
+          {plans.length > 0 ? (
+            Object.entries(plansByLocation).map(([locationName, locationPlans]) => (
+              <div key={locationName} className="location-group">
+                <div className="location-header">
+                  <MapPin size={18} />
+                  <h3>{locationName}</h3>
                 </div>
-              ))}
-            </div>
+                <div className="services-grid">
+                  {locationPlans.map(plan => (
+                    <div key={plan.id} className={`service-card ${plan.isPopular ? 'popular' : ''}`}>
+                      {plan.isPopular && <span className="popular-badge">Mais Popular</span>}
+                      <span className={`plan-type-badge ${plan.type}`}>{plan.type === 'private' ? 'Particular' : 'Grupo'}</span>
+                      <h3>{plan.name}</h3>
+                      <p className="service-desc">{plan.description}</p>
+                      <div className="service-price">
+                        <span className="price-amount">{plan.priceMonthly.toFixed(2).replace('.', ',')}€</span>
+                        <span className="price-detail">/mês · {plan.sessionsPerWeek}x por semana · {plan.sessionDuration}min</span>
+                      </div>
+                      {plan.schedule.length > 0 && (
+                        <div className="plan-schedule">
+                          {plan.schedule.map((s, i) => (
+                            <span key={i} className="schedule-tag">
+                              <Calendar size={12} /> {DAY_NAMES_SHORT[s.dayOfWeek]} {s.startTime}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <ul className="service-features">
+                        {plan.features.map((f, i) => (
+                          <li key={i}><Check size={16} /> {f}</li>
+                        ))}
+                      </ul>
+                      <Link
+                        to={`/checkout?plan=${plan.id}`}
+                        className={`btn ${plan.isPopular ? 'btn-primary' : 'btn-outline'} w-full`}
+                      >
+                        Subscrever
+                      </Link>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
           ) : (
             <div className="no-services">
-              <p>Os serviços estarão disponíveis em breve.</p>
+              <p>Os planos estarão disponíveis em breve.</p>
             </div>
           )}
         </div>
@@ -602,6 +630,70 @@ export function LandingPage() {
           color: var(--primary);
           flex-shrink: 0;
           margin-top: 2px;
+        }
+
+        .location-group {
+          margin-bottom: 3rem;
+        }
+
+        .location-group:last-child {
+          margin-bottom: 0;
+        }
+
+        .location-header {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          margin-bottom: 1.5rem;
+          color: var(--primary-dark);
+        }
+
+        .location-header h3 {
+          font-family: var(--font-body);
+          font-size: 1.125rem;
+          font-weight: 600;
+          margin: 0;
+        }
+
+        .plan-type-badge {
+          display: inline-block;
+          font-size: 0.6875rem;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          padding: 0.25rem 0.625rem;
+          border-radius: var(--radius-full);
+          margin-bottom: 0.75rem;
+        }
+
+        .plan-type-badge.private {
+          background: #dbeafe;
+          color: #1e40af;
+        }
+
+        .plan-type-badge.group {
+          background: #dcfce7;
+          color: #166534;
+        }
+
+        .plan-schedule {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.375rem;
+          margin-bottom: 1.25rem;
+          justify-content: center;
+        }
+
+        .schedule-tag {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.25rem;
+          font-size: 0.75rem;
+          font-weight: 500;
+          background: var(--beige);
+          color: var(--text-secondary);
+          padding: 0.25rem 0.5rem;
+          border-radius: var(--radius-full);
         }
 
         .no-services {

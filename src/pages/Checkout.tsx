@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { useAuth } from '../context/AuthContext';
-import { YogaService } from '../types';
+import { Plan } from '../types';
 import { createMbWayPayment, createMultibancoPayment } from '../services/eupago';
 import { validatePromoCode } from '../services/promoCode';
 import {
@@ -19,7 +19,7 @@ export function Checkout() {
   const { user } = useAuth();
   const planId = searchParams.get('plan');
 
-  const [service, setService] = useState<YogaService | null>(null);
+  const [service, setService] = useState<Plan | null>(null);
   const [loading, setLoading] = useState(true);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod | null>(null);
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -59,17 +59,21 @@ export function Checkout() {
   const loadService = async () => {
     try {
       setLoading(true);
-      const serviceDoc = await getDoc(doc(db, 'services', planId!));
+      // Try plans collection first, fallback to services for legacy
+      let serviceDoc = await getDoc(doc(db, 'plans', planId!));
       if (!serviceDoc.exists()) {
-        setError('Serviço não encontrado');
+        serviceDoc = await getDoc(doc(db, 'services', planId!));
+      }
+      if (!serviceDoc.exists()) {
+        setError('Plano não encontrado');
         return;
       }
       const data = serviceDoc.data();
-      setService({ id: serviceDoc.id, ...data, createdAt: data.createdAt?.toDate(), updatedAt: data.updatedAt?.toDate() } as YogaService);
-      if (!data.isActive) setError('Este serviço não está disponível no momento');
+      setService({ id: serviceDoc.id, ...data, createdAt: data.createdAt?.toDate(), updatedAt: data.updatedAt?.toDate() } as Plan);
+      if (!data.isActive) setError('Este plano não está disponível no momento');
     } catch (err) {
-      console.error('Error loading service:', err);
-      setError('Erro ao carregar serviço');
+      console.error('Error loading plan:', err);
+      setError('Erro ao carregar plano');
     } finally {
       setLoading(false);
     }
@@ -80,7 +84,8 @@ export function Checkout() {
     try {
       setValidatingPromo(true);
       setPromoError(null);
-      const result = await validatePromoCode({ code: promoCode, planId: service.id, amount: service.price });
+      const amount = service.priceMonthly || (service as any).price || 0;
+      const result = await validatePromoCode({ code: promoCode, planId: service.id, amount });
       if (result.valid) {
         setPromoValid(true);
         setPromoDiscount({
@@ -119,7 +124,8 @@ export function Checkout() {
     try {
       setProcessing(true);
       setError(null);
-      const finalAmount = promoDiscount ? promoDiscount.finalAmount : service.price;
+      const basePrice = service.priceMonthly || (service as any).price || 0;
+      const finalAmount = promoDiscount ? promoDiscount.finalAmount : basePrice;
       const userId = user?.uid || 'guest_' + Date.now();
 
       if (paymentMethod === 'mbway') {
@@ -197,8 +203,8 @@ export function Checkout() {
                 <h3>{service.name}</h3>
                 <p className="plan-description">{service.description}</p>
                 <div className="plan-price">
-                  <span className="amount">{service.price.toFixed(2).replace('.', ',')}€</span>
-                  <span className="period">{service.duration}</span>
+                  <span className="amount">{(service.priceMonthly || (service as any).price || 0).toFixed(2).replace('.', ',')}€</span>
+                  <span className="period">{service.sessionsPerWeek ? `${service.sessionsPerWeek}x/sem · ${service.sessionDuration}min · /mês` : (service as any).duration || ''}</span>
                 </div>
               </div>
 
@@ -242,7 +248,7 @@ export function Checkout() {
               <div className="payment-total">
                 {promoDiscount && (
                   <>
-                    <div className="subtotal-row"><span>Subtotal</span><span>{service.price.toFixed(2).replace('.', ',')}€</span></div>
+                    <div className="subtotal-row"><span>Subtotal</span><span>{(service.priceMonthly || (service as any).price || 0).toFixed(2).replace('.', ',')}€</span></div>
                     <div className="discount-row">
                       <span>Desconto ({promoDiscount.discountType === 'percentage' ? `${promoDiscount.discountValue}%` : `${promoDiscount.discountValue}€`})</span>
                       <span className="discount-amount">-{promoDiscount.discountAmount.toFixed(2).replace('.', ',')}€</span>
@@ -251,7 +257,7 @@ export function Checkout() {
                 )}
                 <div className="total-row">
                   <span>Total</span>
-                  <span className="total-amount">{(promoDiscount ? promoDiscount.finalAmount : service.price).toFixed(2).replace('.', ',')}€</span>
+                  <span className="total-amount">{(promoDiscount ? promoDiscount.finalAmount : (service.priceMonthly || (service as any).price || 0)).toFixed(2).replace('.', ',')}€</span>
                 </div>
               </div>
             </div>
