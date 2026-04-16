@@ -179,7 +179,7 @@ export function LandingPage() {
                       <h3>{plan.name}</h3>
                       <p className="service-desc">{plan.description}</p>
                       <div className="service-price">
-                        <span className="price-amount">{plan.priceMonthly.toFixed(2).replace('.', ',')}€</span>
+                        <span className="price-amount">{(plan.priceMonthly || 0).toFixed(2).replace('.', ',')}€</span>
                         <span className="price-detail">/mês · {plan.sessionsPerWeek}x por semana · {plan.sessionDuration}min</span>
                       </div>
                       {plan.schedule.length > 0 && (
@@ -201,14 +201,14 @@ export function LandingPage() {
                           to={`/checkout?plan=${plan.id}&type=subscription`}
                           className={`btn ${plan.isPopular ? 'btn-primary' : 'btn-outline'} w-full`}
                         >
-                          Subscrever {plan.priceMonthly.toFixed(0)}€/mês
+                          Subscrever {(plan.priceMonthly || 0).toFixed(0)}€/mês
                         </Link>
                         {plan.allowDropIn && plan.dropInPrice && (
                           <Link
                             to={`/checkout?plan=${plan.id}&type=dropin`}
                             className="btn btn-secondary w-full btn-sm"
                           >
-                            Aula Avulsa {plan.dropInPrice.toFixed(0)}€
+                            Aula Avulsa {(plan.dropInPrice || 0).toFixed(0)}€
                           </Link>
                         )}
                         {plan.allowPack && plan.packPrice && plan.packSessions && (
@@ -216,7 +216,7 @@ export function LandingPage() {
                             to={`/checkout?plan=${plan.id}&type=pack`}
                             className="btn btn-secondary w-full btn-sm"
                           >
-                            Pack {plan.packSessions} aulas {plan.packPrice.toFixed(0)}€
+                            Pack {plan.packSessions} aulas {(plan.packPrice || 0).toFixed(0)}€
                           </Link>
                         )}
                       </div>
