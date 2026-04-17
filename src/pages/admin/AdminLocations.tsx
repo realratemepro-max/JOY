@@ -5,7 +5,7 @@ import { Location } from '../../types';
 import { Plus, Edit2, Trash2, Save, X, Loader, MapPin, Users, EuroIcon } from 'lucide-react';
 
 const emptyLocation = {
-  name: '', address: '', description: '', photoUrl: '', costPerSession: 0,
+  name: '', address: '', description: '', photoUrl: '', costPerSession: 0, dropInPrice: 0,
   capacity: 10, amenities: [] as string[], mapUrl: '', isActive: true, order: 0,
 };
 
@@ -43,6 +43,7 @@ export function AdminLocations() {
       const data = {
         ...editData,
         costPerSession: Number(editData.costPerSession),
+        dropInPrice: Number(editData.dropInPrice),
         capacity: Number(editData.capacity),
         order: Number(editData.order),
         createdAt: editing === 'new' ? new Date() : editData.createdAt,
@@ -111,6 +112,11 @@ export function AdminLocations() {
               <label className="label">Custo por sessão (interno, €)</label>
               <input className="input" type="number" step="0.01" value={editData.costPerSession} onChange={e => setEditData({ ...editData, costPerSession: e.target.value })} />
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem', display: 'block' }}>Só visível para ti. Quanto pagas pelo espaço por aula.</span>
+            </div>
+            <div className="form-group">
+              <label className="label">Preço Aula Avulsa (€)</label>
+              <input className="input" type="number" step="0.01" value={editData.dropInPrice || ''} onChange={e => setEditData({ ...editData, dropInPrice: e.target.value })} />
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem', display: 'block' }}>Preço público para quem compra 1 aula sem plano.</span>
             </div>
             <div className="form-group">
               <label className="label">Capacidade (alunos)</label>
@@ -188,7 +194,11 @@ export function AdminLocations() {
                 </div>
                 <div style={{ textAlign: 'center' }}>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Custo</div>
-                  <div style={{ fontWeight: 600 }}>{loc.costPerSession.toFixed(2).replace('.', ',')}€</div>
+                  <div style={{ fontWeight: 600 }}>{(loc.costPerSession || 0).toFixed(0)}€</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Avulsa</div>
+                  <div style={{ fontWeight: 600, color: 'var(--primary-dark)' }}>{(loc.dropInPrice || 0).toFixed(0)}€</div>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '0.5rem' }}>

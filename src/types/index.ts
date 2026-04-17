@@ -79,8 +79,9 @@ export interface Location {
   address: string;
   description: string;
   photoUrl?: string;
-  costPerSession: number; // Internal: Joaquim's cost
-  capacity: number;
+  costPerSession: number; // Internal: Joaquim's cost per session
+  dropInPrice: number;    // Public: price for a single drop-in class
+  capacity: number;       // Max students
   amenities: string[];
   mapUrl?: string;
   isActive: boolean;
@@ -89,33 +90,18 @@ export interface Location {
   updatedAt: Date;
 }
 
-// ============ Plans (Planos de Aulas) ============
-export interface ScheduleSlot {
-  dayOfWeek: number; // 0=Dom, 1=Seg, 2=Ter, 3=Qua, 4=Qui, 5=Sex, 6=Sáb
-  startTime: string; // "09:00"
-  endTime: string;   // "10:00"
-}
-
+// ============ Plans (Planos Mensais) ============
+// Plans are subscription models: X sessions/week at location Y for Z€/month
+// The actual schedule (days/times) is defined in Sessions, not here
 export interface Plan {
   id: string;
   name: string;
   description: string;
   longDescription?: string;
   locationId: string;
-  locationName: string; // Denormalized
+  locationName: string;
   sessionsPerWeek: number; // 1, 2, 3...
-  sessionDuration: number; // in minutes
   priceMonthly: number;
-  // Drop-in / single class
-  allowDropIn: boolean;
-  dropInPrice?: number; // Price per single session
-  // Pack options
-  allowPack: boolean;
-  packSessions?: number; // e.g. 5, 10
-  packPrice?: number; // Total pack price
-  schedule: ScheduleSlot[];
-  type: 'private' | 'group';
-  maxStudents?: number;
   features: string[];
   isPopular: boolean;
   isActive: boolean;
@@ -153,10 +139,11 @@ export interface Subscription {
   updatedAt: Date;
 }
 
-// ============ Sessions (Aulas Concretas) ============
+// ============ Sessions (Aulas / Centro Operacional) ============
 export type AttendanceStatus = 'enrolled' | 'attended' | 'absent' | 'cancelled';
-export type SessionType = 'regular' | 'makeup' | 'extra' | 'event';
+export type SessionType = 'regular' | 'dropin' | 'event' | 'extra' | 'makeup';
 export type SessionStatus = 'scheduled' | 'completed' | 'cancelled';
+export type SessionRecurrence = 'none' | 'weekly' | 'monthly';
 
 export interface SessionStudent {
   userId: string;
@@ -167,17 +154,30 @@ export interface SessionStudent {
 
 export interface Session {
   id: string;
-  planId?: string;
+  // Location (inherits capacity but can be overridden)
   locationId: string;
   locationName: string;
+  maxCapacity: number; // Defaults from location, can be adjusted
+
+  // Schedule
   date: Date;
   startTime: string;
   endTime: string;
   dayOfWeek: number;
+
+  // Recurrence
+  recurrence: SessionRecurrence; // 'none' = one-off, 'weekly' = repeats every week
+  recurrenceEndDate?: Date; // When recurrence stops (optional)
+
+  // Type & associations
+  type: SessionType; // 'regular' for plan sessions, 'dropin' for single purchases, 'event' for events
+  planIds?: string[]; // Which plans can use this session
+  eventId?: string;
+
+  // Students
   enrolledStudents: SessionStudent[];
-  maxCapacity: number;
-  type: SessionType;
-  eventId?: string; // V2
+
+  // Status
   status: SessionStatus;
   notes?: string;
   createdAt: Date;

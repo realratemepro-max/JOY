@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { getSiteConfig, defaultSiteConfig } from '../services/siteConfig';
-import { SiteConfig, Plan, Testimonial } from '../types';
+import { SiteConfig, Plan, Testimonial, Location } from '../types';
 import { Navbar } from '../components/Navbar';
 import { Footer } from '../components/Footer';
 import {
@@ -17,6 +17,7 @@ const DAY_NAMES_SHORT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 export function LandingPage() {
   const [config, setConfig] = useState<SiteConfig>(defaultSiteConfig);
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
   const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -26,13 +27,18 @@ export function LandingPage() {
 
   const loadData = async () => {
     try {
-      const [siteConfig, plansSnap, testimonialsSnap] = await Promise.all([
+      const [siteConfig, plansSnap, locsSnap, testimonialsSnap] = await Promise.all([
         getSiteConfig(),
         getDocs(query(collection(db, 'plans'), where('isActive', '==', true), orderBy('order'))),
+        getDocs(query(collection(db, 'locations'), where('isActive', '==', true), orderBy('order'))),
         getDocs(query(collection(db, 'testimonials'), where('isActive', '==', true), orderBy('order'))),
       ]);
 
       setConfig(siteConfig);
+
+      setLocations(locsSnap.docs.map(d => ({
+        id: d.id, ...d.data(),
+      } as Location)));
 
       setPlans(plansSnap.docs.map(d => ({
         id: d.id,
@@ -164,72 +170,74 @@ export function LandingPage() {
           <div className="divider" />
           <p className="section-subtitle">{config.servicesSubtitle}</p>
 
+          {/* Drop-in classes by location */}
+          {locations.filter(l => l.dropInPrice > 0).length > 0 && (
+            <div className="dropin-section">
+              <h3 className="subsection-title">Aulas Avulsas</h3>
+              <p className="subsection-desc">Sem compromisso. Compra uma aula individual.</p>
+              <div className="services-grid">
+                {locations.filter(l => l.dropInPrice > 0).map(loc => (
+                  <div key={loc.id} className="service-card dropin-card">
+                    <span className="plan-type-badge dropin">Aula Avulsa</span>
+                    <h3>{loc.name}</h3>
+                    <p className="service-desc">{loc.description || loc.address}</p>
+                    <div className="service-price">
+                      <span className="price-amount">{(loc.dropInPrice || 0).toFixed(0)}€</span>
+                      <span className="price-detail">por sessão</span>
+                    </div>
+                    <Link to={`/checkout?location=${loc.id}&type=dropin`} className="btn btn-outline w-full">
+                      Reservar Aula
+                    </Link>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Monthly plans by location */}
           {plans.length > 0 ? (
-            Object.entries(plansByLocation).map(([locationName, locationPlans]) => (
-              <div key={locationName} className="location-group">
-                <div className="location-header">
-                  <MapPin size={18} />
-                  <h3>{locationName}</h3>
-                </div>
-                <div className="services-grid">
-                  {locationPlans.map(plan => (
-                    <div key={plan.id} className={`service-card ${plan.isPopular ? 'popular' : ''}`}>
-                      {plan.isPopular && <span className="popular-badge">Mais Popular</span>}
-                      <span className={`plan-type-badge ${plan.type}`}>{plan.type === 'private' ? 'Particular' : 'Grupo'}</span>
-                      <h3>{plan.name}</h3>
-                      <p className="service-desc">{plan.description}</p>
-                      <div className="service-price">
-                        <span className="price-amount">{(plan.priceMonthly || 0).toFixed(2).replace('.', ',')}€</span>
-                        <span className="price-detail">/mês · {plan.sessionsPerWeek}x por semana · {plan.sessionDuration}min</span>
-                      </div>
-                      {plan.schedule.length > 0 && (
-                        <div className="plan-schedule">
-                          {plan.schedule.map((s, i) => (
-                            <span key={i} className="schedule-tag">
-                              <Calendar size={12} /> {DAY_NAMES_SHORT[s.dayOfWeek]} {s.startTime}
-                            </span>
-                          ))}
+            <>
+              <h3 className="subsection-title" style={{ marginTop: '2.5rem' }}>Planos Mensais</h3>
+              <p className="subsection-desc">Subscreve um plano para prática regular com desconto.</p>
+              {Object.entries(plansByLocation).map(([locationName, locationPlans]) => (
+                <div key={locationName} className="location-group">
+                  <div className="location-header">
+                    <MapPin size={18} />
+                    <h3>{locationName}</h3>
+                  </div>
+                  <div className="services-grid">
+                    {locationPlans.map(plan => (
+                      <div key={plan.id} className={`service-card ${plan.isPopular ? 'popular' : ''}`}>
+                        {plan.isPopular && <span className="popular-badge">Mais Popular</span>}
+                        <span className="plan-type-badge subscription">Plano Mensal</span>
+                        <h3>{plan.name}</h3>
+                        <p className="service-desc">{plan.description}</p>
+                        <div className="service-price">
+                          <span className="price-amount">{(plan.priceMonthly || 0).toFixed(0)}€</span>
+                          <span className="price-detail">/mês · {plan.sessionsPerWeek}x por semana</span>
                         </div>
-                      )}
-                      <ul className="service-features">
-                        {plan.features.map((f, i) => (
-                          <li key={i}><Check size={16} /> {f}</li>
-                        ))}
-                      </ul>
-                      <div className="plan-buttons">
+                        <ul className="service-features">
+                          {(plan.features || []).map((f, i) => (
+                            <li key={i}><Check size={16} /> {f}</li>
+                          ))}
+                        </ul>
                         <Link
                           to={`/checkout?plan=${plan.id}&type=subscription`}
                           className={`btn ${plan.isPopular ? 'btn-primary' : 'btn-outline'} w-full`}
                         >
-                          Subscrever {(plan.priceMonthly || 0).toFixed(0)}€/mês
+                          Subscrever
                         </Link>
-                        {plan.allowDropIn && plan.dropInPrice && (
-                          <Link
-                            to={`/checkout?plan=${plan.id}&type=dropin`}
-                            className="btn btn-secondary w-full btn-sm"
-                          >
-                            Aula Avulsa {(plan.dropInPrice || 0).toFixed(0)}€
-                          </Link>
-                        )}
-                        {plan.allowPack && plan.packPrice && plan.packSessions && (
-                          <Link
-                            to={`/checkout?plan=${plan.id}&type=pack`}
-                            className="btn btn-secondary w-full btn-sm"
-                          >
-                            Pack {plan.packSessions} aulas {(plan.packPrice || 0).toFixed(0)}€
-                          </Link>
-                        )}
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))
-          ) : (
+              ))}
+            </>
+          ) : locations.filter(l => l.dropInPrice > 0).length === 0 ? (
             <div className="no-services">
               <p>Os planos estarão disponíveis em breve.</p>
             </div>
-          )}
+          ) : null}
         </div>
       </section>
 
@@ -714,10 +722,39 @@ export function LandingPage() {
           border-radius: var(--radius-full);
         }
 
-        .plan-buttons {
-          display: flex;
-          flex-direction: column;
-          gap: 0.5rem;
+        .subsection-title {
+          font-family: var(--font-body);
+          font-size: 1.125rem;
+          font-weight: 600;
+          text-align: center;
+          color: var(--primary-dark);
+          margin-bottom: 0.25rem;
+        }
+
+        .subsection-desc {
+          text-align: center;
+          font-size: 0.9375rem;
+          color: var(--text-secondary);
+          margin-bottom: 1.5rem;
+        }
+
+        .dropin-section {
+          margin-bottom: 1rem;
+        }
+
+        .dropin-card {
+          border: 2px dashed var(--sand);
+          background: var(--cream);
+        }
+
+        .plan-type-badge.dropin {
+          background: #fef3c7;
+          color: #92400e;
+        }
+
+        .plan-type-badge.subscription {
+          background: #dbeafe;
+          color: #1e40af;
         }
 
         .no-services {

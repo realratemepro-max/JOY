@@ -216,16 +216,8 @@ export function Checkout() {
     itemPrice = event?.price || 0;
     itemPriceLabel = `${event?.date?.toLocaleDateString('pt-PT', { day: 'numeric', month: 'long' })} · ${event?.startTime}-${event?.endTime}`;
   } else if (service) {
-    if (purchaseType === 'dropin' && service.allowDropIn && service.dropInPrice) {
-      itemPrice = service.dropInPrice;
-      itemPriceLabel = `Aula avulsa · ${service.sessionDuration}min`;
-    } else if (purchaseType === 'pack' && service.allowPack && service.packPrice) {
-      itemPrice = service.packPrice;
-      itemPriceLabel = `Pack ${service.packSessions} aulas · ${service.sessionDuration}min`;
-    } else {
-      itemPrice = service.priceMonthly || (service as any)?.price || 0;
-      itemPriceLabel = service.sessionsPerWeek ? `${service.sessionsPerWeek}x/sem · ${service.sessionDuration}min · /mês` : (service as any)?.duration || '';
-    }
+    itemPrice = service.priceMonthly || (service as any)?.price || 0;
+    itemPriceLabel = service.sessionsPerWeek ? `${service.sessionsPerWeek}x por semana · /mês` : (service as any)?.duration || '';
   }
 
   if (!service && !event) return null;

@@ -85,21 +85,6 @@ export function ClientPlan() {
       </div>
 
       <div className="details-grid">
-        {/* Schedule */}
-        {plan && plan.schedule.length > 0 && (
-          <div className="detail-card">
-            <h3><Calendar size={18} /> Horário</h3>
-            <div className="schedule-list">
-              {plan.schedule.map((s, i) => (
-                <div key={i} className="schedule-item">
-                  <span className="schedule-day">{DAY_NAMES[s.dayOfWeek]}</span>
-                  <span className="schedule-time">{s.startTime} - {s.endTime}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Location */}
         {location && (
           <div className="detail-card">

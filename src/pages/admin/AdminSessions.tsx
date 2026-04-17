@@ -41,7 +41,10 @@ export function AdminSessions() {
   // New session form
   const [showNewForm, setShowNewForm] = useState(false);
   const [newSession, setNewSession] = useState({
-    locationId: '', startTime: '09:00', endTime: '10:00', planId: '', type: 'regular' as const, notes: '',
+    locationId: '', startTime: '09:00', endTime: '10:00',
+    type: 'regular' as 'regular' | 'dropin' | 'event' | 'extra' | 'makeup',
+    recurrence: 'none' as 'none' | 'weekly' | 'monthly',
+    notes: '',
   });
 
   useEffect(() => { loadData(); }, [weekBase]);
@@ -123,7 +126,6 @@ export function AdminSessions() {
       sessionDate.setHours(parseInt(newSession.startTime.split(':')[0]), parseInt(newSession.startTime.split(':')[1]));
 
       const data = {
-        planId: newSession.planId || null,
         locationId: newSession.locationId,
         locationName: loc?.name || '',
         date: Timestamp.fromDate(sessionDate),
@@ -133,16 +135,34 @@ export function AdminSessions() {
         enrolledStudents: [],
         maxCapacity: loc?.capacity || 10,
         type: newSession.type,
+        recurrence: newSession.recurrence,
         status: 'scheduled',
         notes: newSession.notes || '',
         createdAt: Timestamp.fromDate(new Date()),
         updatedAt: Timestamp.fromDate(new Date()),
       };
 
-      const ref = doc(collection(db, 'sessions'));
-      await setDoc(ref, data);
+      // If weekly recurrence, create sessions for 4 weeks
+      if (newSession.recurrence === 'weekly') {
+        for (let w = 0; w < 4; w++) {
+          const weekDate = new Date(sessionDate);
+          weekDate.setDate(weekDate.getDate() + (w * 7));
+          const ref = doc(collection(db, 'sessions'));
+          await setDoc(ref, { ...data, date: Timestamp.fromDate(weekDate), dayOfWeek: weekDate.getDay() });
+        }
+      } else if (newSession.recurrence === 'monthly') {
+        for (let m = 0; m < 3; m++) {
+          const monthDate = new Date(sessionDate);
+          monthDate.setMonth(monthDate.getMonth() + m);
+          const ref = doc(collection(db, 'sessions'));
+          await setDoc(ref, { ...data, date: Timestamp.fromDate(monthDate), dayOfWeek: monthDate.getDay() });
+        }
+      } else {
+        const ref = doc(collection(db, 'sessions'));
+        await setDoc(ref, data);
+      }
       setShowNewForm(false);
-      setNewSession({ locationId: '', startTime: '09:00', endTime: '10:00', planId: '', type: 'regular', notes: '' });
+      setNewSession({ locationId: '', startTime: '09:00', endTime: '10:00', type: 'regular', recurrence: 'none', notes: '' });
       await loadData();
     } catch (err) { console.error(err); }
     finally { setSaving(false); }
@@ -217,10 +237,17 @@ export function AdminSessions() {
                 <input type="time" className="input" value={newSession.startTime} onChange={e => setNewSession({ ...newSession, startTime: e.target.value })} style={{ width: 110 }} />
                 <span style={{ color: 'var(--text-muted)' }}>-</span>
                 <input type="time" className="input" value={newSession.endTime} onChange={e => setNewSession({ ...newSession, endTime: e.target.value })} style={{ width: 110 }} />
-                <select className="input" value={newSession.type} onChange={e => setNewSession({ ...newSession, type: e.target.value as any })} style={{ width: 120 }}>
+                <select className="input" value={newSession.type} onChange={e => setNewSession({ ...newSession, type: e.target.value as any })} style={{ width: 130 }}>
                   <option value="regular">Regular</option>
+                  <option value="dropin">Aula Avulsa</option>
                   <option value="extra">Extra</option>
                   <option value="makeup">Reposição</option>
+                  <option value="event">Evento</option>
+                </select>
+                <select className="input" value={newSession.recurrence} onChange={e => setNewSession({ ...newSession, recurrence: e.target.value as any })} style={{ width: 140 }}>
+                  <option value="none">Única</option>
+                  <option value="weekly">Semanal (4 sem)</option>
+                  <option value="monthly">Mensal (3 meses)</option>
                 </select>
               </div>
               <div className="form-row">
