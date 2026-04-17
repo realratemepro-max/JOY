@@ -119,7 +119,7 @@ export function AdminSubscriptions() {
                     </div>
                   </div>
                   <div className="sub-price">
-                    <div style={{ fontWeight: 700, fontSize: '1.125rem' }}>{sub.priceMonthly.toFixed(2).replace('.', ',')}€</div>
+                    <div style={{ fontWeight: 700, fontSize: '1.125rem' }}>{(sub.priceMonthly || 0).toFixed(2).replace('.', ',')}€</div>
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>/mês</span>
                   </div>
                   <div className="sub-sessions">

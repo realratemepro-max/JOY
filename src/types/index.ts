@@ -80,7 +80,6 @@ export interface Location {
   description: string;
   photoUrl?: string;
   costPerSession: number; // Internal: Joaquim's cost per session
-  dropInPrice: number;    // Public: price for a single drop-in class
   capacity: number;       // Max students
   amenities: string[];
   mapUrl?: string;
@@ -90,18 +89,37 @@ export interface Location {
   updatedAt: Date;
 }
 
-// ============ Plans (Planos Mensais) ============
-// Plans are subscription models: X sessions/week at location Y for Z€/month
-// The actual schedule (days/times) is defined in Sessions, not here
+// ============ Professors (Professores) ============
+export interface Professor {
+  id: string;
+  name: string;
+  style: string;       // e.g. "Vinyasa", "Hatha", "Yin"
+  age?: number;
+  bio: string;
+  photoUrl?: string;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ============ Plans (Planos de Aulas) ============
+// Two types: 'subscription' (monthly) or 'dropin' (single class)
+export type PlanBillingType = 'subscription' | 'dropin';
+
 export interface Plan {
   id: string;
   name: string;
   description: string;
   longDescription?: string;
+  billingType: PlanBillingType;
   locationId: string;
   locationName: string;
-  sessionsPerWeek: number; // 1, 2, 3...
-  priceMonthly: number;
+  // Subscription fields (only when billingType = 'subscription')
+  sessionsPerWeek?: number; // 1, 2, 3...
+  priceMonthly?: number;
+  // Drop-in fields (only when billingType = 'dropin')
+  pricePerSession?: number;
+  // Common
   features: string[];
   isPopular: boolean;
   isActive: boolean;
@@ -139,9 +157,9 @@ export interface Subscription {
   updatedAt: Date;
 }
 
-// ============ Sessions (Aulas / Centro Operacional) ============
+// ============ Aulas (Sessions) ============
 export type AttendanceStatus = 'enrolled' | 'attended' | 'absent' | 'cancelled';
-export type SessionType = 'regular' | 'dropin' | 'event' | 'extra' | 'makeup';
+export type SessionClassType = 'group' | 'private'; // Grupo ou Privada
 export type SessionStatus = 'scheduled' | 'completed' | 'cancelled';
 export type SessionRecurrence = 'none' | 'weekly' | 'monthly';
 
@@ -154,10 +172,16 @@ export interface SessionStudent {
 
 export interface Session {
   id: string;
-  // Location (inherits capacity but can be overridden)
+  name?: string; // Optional name for the class
+
+  // Location
   locationId: string;
   locationName: string;
-  maxCapacity: number; // Defaults from location, can be adjusted
+  maxCapacity: number;
+
+  // Professor
+  professorId?: string;
+  professorName?: string;
 
   // Schedule
   date: Date;
@@ -166,13 +190,11 @@ export interface Session {
   dayOfWeek: number;
 
   // Recurrence
-  recurrence: SessionRecurrence; // 'none' = one-off, 'weekly' = repeats every week
-  recurrenceEndDate?: Date; // When recurrence stops (optional)
+  recurrence: SessionRecurrence;
+  recurrenceEndDate?: Date;
 
-  // Type & associations
-  type: SessionType; // 'regular' for plan sessions, 'dropin' for single purchases, 'event' for events
-  planIds?: string[]; // Which plans can use this session
-  eventId?: string;
+  // Type
+  classType: SessionClassType; // 'group' or 'private'
 
   // Students
   enrolledStudents: SessionStudent[];
@@ -192,6 +214,8 @@ export interface YogaEvent {
   longDescription?: string;
   photoUrl?: string;
   locationId: string;
+  professorId?: string;
+  professorName?: string;
   locationName: string;
   date: Date;
   startTime: string;

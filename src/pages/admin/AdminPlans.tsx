@@ -6,8 +6,9 @@ import { Plus, Edit2, Trash2, Save, X, Loader, MapPin } from 'lucide-react';
 
 const emptyPlan = {
   name: '', description: '', longDescription: '', locationId: '', locationName: '',
-  sessionsPerWeek: 1, priceMonthly: 0, features: [] as string[],
-  isPopular: false, isActive: true, order: 0,
+  billingType: 'subscription' as 'subscription' | 'dropin',
+  sessionsPerWeek: 1, priceMonthly: 0, pricePerSession: 0,
+  features: [] as string[], isPopular: false, isActive: true, order: 0,
 };
 
 export function AdminPlans() {
@@ -69,8 +70,10 @@ export function AdminPlans() {
         longDescription: editData.longDescription || '',
         locationId: editData.locationId,
         locationName: editData.locationName,
-        sessionsPerWeek: Number(editData.sessionsPerWeek),
-        priceMonthly: Number(editData.priceMonthly),
+        billingType: editData.billingType,
+        sessionsPerWeek: editData.billingType === 'subscription' ? Number(editData.sessionsPerWeek) : null,
+        priceMonthly: editData.billingType === 'subscription' ? Number(editData.priceMonthly) : null,
+        pricePerSession: editData.billingType === 'dropin' ? Number(editData.pricePerSession) : null,
         features: editData.features || [],
         isPopular: editData.isPopular || false,
         isActive: editData.isActive,
@@ -141,18 +144,39 @@ export function AdminPlans() {
             <textarea className="input textarea" rows={2} value={editData.description} onChange={e => setEditData({ ...editData, description: e.target.value })} placeholder="Ideal para quem quer começar uma prática regular..." />
           </div>
 
-          <div className="edit-grid">
-            <div className="form-group">
-              <label className="label">Sessões por Semana</label>
-              <select className="input" value={editData.sessionsPerWeek} onChange={e => setEditData({ ...editData, sessionsPerWeek: e.target.value })}>
-                {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n}x por semana</option>)}
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="label">Preço Mensal (€)</label>
-              <input className="input" type="number" step="0.01" value={editData.priceMonthly} onChange={e => setEditData({ ...editData, priceMonthly: e.target.value })} />
+          <div className="form-group">
+            <label className="label">Tipo de Plano</label>
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', cursor: 'pointer', padding: '0.5rem 1rem', border: `2px solid ${editData.billingType === 'subscription' ? 'var(--primary)' : 'var(--sand)'}`, borderRadius: 'var(--radius-lg)', background: editData.billingType === 'subscription' ? 'rgba(124,154,114,0.08)' : 'white' }}>
+                <input type="radio" name="billingType" value="subscription" checked={editData.billingType === 'subscription'} onChange={() => setEditData({ ...editData, billingType: 'subscription' })} />
+                <strong>Subscrição Mensal</strong>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', cursor: 'pointer', padding: '0.5rem 1rem', border: `2px solid ${editData.billingType === 'dropin' ? 'var(--accent)' : 'var(--sand)'}`, borderRadius: 'var(--radius-lg)', background: editData.billingType === 'dropin' ? 'rgba(193,127,89,0.08)' : 'white' }}>
+                <input type="radio" name="billingType" value="dropin" checked={editData.billingType === 'dropin'} onChange={() => setEditData({ ...editData, billingType: 'dropin' })} />
+                <strong>Aula Avulsa</strong>
+              </label>
             </div>
           </div>
+
+          {editData.billingType === 'subscription' ? (
+            <div className="edit-grid">
+              <div className="form-group">
+                <label className="label">Sessões por Semana</label>
+                <select className="input" value={editData.sessionsPerWeek} onChange={e => setEditData({ ...editData, sessionsPerWeek: e.target.value })}>
+                  {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n}x por semana</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="label">Preço Mensal (€)</label>
+                <input className="input" type="number" step="0.01" value={editData.priceMonthly} onChange={e => setEditData({ ...editData, priceMonthly: e.target.value })} />
+              </div>
+            </div>
+          ) : (
+            <div className="form-group">
+              <label className="label">Preço por Sessão (€)</label>
+              <input className="input" type="number" step="0.01" value={editData.pricePerSession || ''} onChange={e => setEditData({ ...editData, pricePerSession: e.target.value })} style={{ width: 150 }} />
+            </div>
+          )}
 
           {/* Features */}
           <div className="form-group">
@@ -208,12 +232,12 @@ export function AdminPlans() {
                 </div>
                 <div style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', display: 'flex', gap: '1rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
                   <span><MapPin size={12} style={{ display: 'inline', verticalAlign: 'middle' }} /> {plan.locationName}</span>
-                  <span>{plan.sessionsPerWeek}x/semana</span>
+                  <span>{plan.billingType === 'dropin' ? 'Aula Avulsa' : `${plan.sessionsPerWeek || 0}x/semana`}</span>
                 </div>
               </div>
               <div style={{ textAlign: 'right', minWidth: 100 }}>
-                <div style={{ fontWeight: 700, fontSize: '1.125rem' }}>{(plan.priceMonthly || 0).toFixed(0)}€</div>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>/mês</span>
+                <div style={{ fontWeight: 700, fontSize: '1.125rem' }}>{(plan.billingType === 'dropin' ? (plan.pricePerSession || 0) : (plan.priceMonthly || 0)).toFixed(0)}€</div>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{plan.billingType === 'dropin' ? '/aula' : '/mês'}</span>
               </div>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button className="btn btn-sm btn-secondary" onClick={() => startEdit(plan)} disabled={!!editing}><Edit2 size={14} /></button>

@@ -23,6 +23,7 @@ service cloud.firestore {
     match /testimonials/{id} { allow read: if true; allow write: if isAdmin(); }
     match /locations/{id} { allow read: if true; allow write: if isAdmin(); }
     match /plans/{id} { allow read: if true; allow write: if isAdmin(); }
+    match /professors/{id} { allow read: if true; allow write: if isAdmin(); }
     match /pricing/{planId} { allow read: if true; allow write: if isAdmin(); }
     match /promoCodes/{id} { allow read: if true; allow write: if isAdmin(); }
 

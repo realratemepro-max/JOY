@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   LayoutDashboard, Settings, Package, Users, CreditCard,
   MessageSquare, LogOut, Menu, X, ChevronRight, MapPin,
-  CalendarDays, ClipboardList
+  CalendarDays, ClipboardList, UserCheck
 } from 'lucide-react';
 
 interface AdminLayoutProps {
@@ -20,9 +20,10 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   const menuItems = [
     { path: '/admin', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/admin/locations', icon: MapPin, label: 'Espaços' },
+    { path: '/admin/professors', icon: UserCheck, label: 'Professores' },
     { path: '/admin/plans', icon: Package, label: 'Planos' },
     { path: '/admin/subscriptions', icon: ClipboardList, label: 'Subscrições' },
-    { path: '/admin/sessions', icon: CalendarDays, label: 'Sessões' },
+    { path: '/admin/sessions', icon: CalendarDays, label: 'Aulas' },
     { path: '/admin/clients', icon: Users, label: 'Clientes' },
     { path: '/admin/payments', icon: CreditCard, label: 'Pagamentos' },
     { path: '/admin/events', icon: CalendarDays, label: 'Eventos' },

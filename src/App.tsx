@@ -26,6 +26,7 @@ import { AdminTestimonials } from './pages/admin/AdminTestimonials';
 import { AdminSubscriptions } from './pages/admin/AdminSubscriptions';
 import { AdminSessions } from './pages/admin/AdminSessions';
 import { AdminEvents } from './pages/admin/AdminEvents';
+import { AdminProfessors } from './pages/admin/AdminProfessors';
 
 // Client Portal Pages
 import { ClientDashboard } from './pages/app/ClientDashboard';
@@ -85,6 +86,7 @@ function AppRoutes() {
       {/* Admin */}
       <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
       <Route path="/admin/locations" element={<AdminRoute><AdminLocations /></AdminRoute>} />
+      <Route path="/admin/professors" element={<AdminRoute><AdminProfessors /></AdminRoute>} />
       <Route path="/admin/plans" element={<AdminRoute><AdminPlans /></AdminRoute>} />
       <Route path="/admin/subscriptions" element={<AdminRoute><AdminSubscriptions /></AdminRoute>} />
       <Route path="/admin/sessions" element={<AdminRoute><AdminSessions /></AdminRoute>} />

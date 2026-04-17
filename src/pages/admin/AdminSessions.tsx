@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, orderBy, where, Timestamp } from 'firebase/firestore';
 import { db } from '../../services/firebase';
-import { Session, SessionStudent, Plan, Location } from '../../types';
+import { Session, SessionStudent, Plan, Location, Professor } from '../../types';
 import {
   Plus, Save, X, Loader, Calendar, MapPin, Clock, Check,
   XCircle, Minus, ChevronLeft, ChevronRight, Users, Edit2, Trash2
@@ -39,12 +39,13 @@ export function AdminSessions() {
   const [saving, setSaving] = useState(false);
 
   // New session form
+  const [professors, setProfessors] = useState<Professor[]>([]);
   const [showNewForm, setShowNewForm] = useState(false);
   const [newSession, setNewSession] = useState({
-    locationId: '', startTime: '09:00', endTime: '10:00',
-    type: 'regular' as 'regular' | 'dropin' | 'event' | 'extra' | 'makeup',
+    locationId: '', professorId: '', startTime: '09:00', endTime: '10:00',
+    classType: 'group' as 'group' | 'private',
     recurrence: 'none' as 'none' | 'weekly' | 'monthly',
-    notes: '',
+    name: '', notes: '',
   });
 
   useEffect(() => { loadData(); }, [weekBase]);
@@ -56,10 +57,11 @@ export function AdminSessions() {
       const weekEnd = new Date(weekDates[6]);
       weekEnd.setHours(23, 59, 59);
 
-      const [sessionsSnap, plansSnap, locsSnap] = await Promise.all([
+      const [sessionsSnap, plansSnap, locsSnap, profsSnap] = await Promise.all([
         getDocs(query(collection(db, 'sessions'), orderBy('date', 'asc'))),
         getDocs(query(collection(db, 'plans'), orderBy('order'))),
         getDocs(query(collection(db, 'locations'), orderBy('order'))),
+        getDocs(query(collection(db, 'professors'), orderBy('name'))),
       ]);
 
       const allSessions = sessionsSnap.docs.map(d => {
@@ -70,6 +72,7 @@ export function AdminSessions() {
       setSessions(allSessions);
       setPlans(plansSnap.docs.map(d => ({ id: d.id, ...d.data() } as Plan)));
       setLocations(locsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Location)));
+      setProfessors(profsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Professor)));
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
   };
@@ -125,16 +128,20 @@ export function AdminSessions() {
       const sessionDate = new Date(selectedDate);
       sessionDate.setHours(parseInt(newSession.startTime.split(':')[0]), parseInt(newSession.startTime.split(':')[1]));
 
+      const prof = professors.find(p => p.id === newSession.professorId);
       const data = {
+        name: newSession.name || '',
         locationId: newSession.locationId,
         locationName: loc?.name || '',
+        professorId: newSession.professorId || null,
+        professorName: prof?.name || null,
         date: Timestamp.fromDate(sessionDate),
         startTime: newSession.startTime,
         endTime: newSession.endTime,
         dayOfWeek: sessionDate.getDay(),
         enrolledStudents: [],
         maxCapacity: loc?.capacity || 10,
-        type: newSession.type,
+        classType: newSession.classType,
         recurrence: newSession.recurrence,
         status: 'scheduled',
         notes: newSession.notes || '',
@@ -162,7 +169,7 @@ export function AdminSessions() {
         await setDoc(ref, data);
       }
       setShowNewForm(false);
-      setNewSession({ locationId: '', startTime: '09:00', endTime: '10:00', type: 'regular', recurrence: 'none', notes: '' });
+      setNewSession({ locationId: '', professorId: '', startTime: '09:00', endTime: '10:00', classType: 'group', recurrence: 'none', name: '', notes: '' });
       await loadData();
     } catch (err) { console.error(err); }
     finally { setSaving(false); }
@@ -230,25 +237,29 @@ export function AdminSessions() {
           {showNewForm && (
             <div className="new-session-form">
               <div className="form-row">
-                <select className="input" value={newSession.locationId} onChange={e => setNewSession({ ...newSession, locationId: e.target.value })}>
-                  <option value="">Espaço...</option>
-                  {locations.filter(l => l.isActive).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                <input className="input" value={newSession.name} onChange={e => setNewSession({ ...newSession, name: e.target.value })} placeholder="Nome da aula (opcional)" style={{ flex: 1 }} />
+                <select className="input" value={newSession.classType} onChange={e => setNewSession({ ...newSession, classType: e.target.value as any })} style={{ width: 120 }}>
+                  <option value="group">Grupo</option>
+                  <option value="private">Privada</option>
                 </select>
-                <input type="time" className="input" value={newSession.startTime} onChange={e => setNewSession({ ...newSession, startTime: e.target.value })} style={{ width: 110 }} />
-                <span style={{ color: 'var(--text-muted)' }}>-</span>
-                <input type="time" className="input" value={newSession.endTime} onChange={e => setNewSession({ ...newSession, endTime: e.target.value })} style={{ width: 110 }} />
-                <select className="input" value={newSession.type} onChange={e => setNewSession({ ...newSession, type: e.target.value as any })} style={{ width: 130 }}>
-                  <option value="regular">Regular</option>
-                  <option value="dropin">Aula Avulsa</option>
-                  <option value="extra">Extra</option>
-                  <option value="makeup">Reposição</option>
-                  <option value="event">Evento</option>
-                </select>
-                <select className="input" value={newSession.recurrence} onChange={e => setNewSession({ ...newSession, recurrence: e.target.value as any })} style={{ width: 140 }}>
+                <select className="input" value={newSession.recurrence} onChange={e => setNewSession({ ...newSession, recurrence: e.target.value as any })} style={{ width: 150 }}>
                   <option value="none">Única</option>
                   <option value="weekly">Semanal (4 sem)</option>
                   <option value="monthly">Mensal (3 meses)</option>
                 </select>
+              </div>
+              <div className="form-row">
+                <select className="input" value={newSession.locationId} onChange={e => setNewSession({ ...newSession, locationId: e.target.value })}>
+                  <option value="">Espaço...</option>
+                  {locations.filter(l => l.isActive).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
+                <select className="input" value={newSession.professorId} onChange={e => setNewSession({ ...newSession, professorId: e.target.value })}>
+                  <option value="">Professor...</option>
+                  {professors.filter(p => p.isActive).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+                <input type="time" className="input" value={newSession.startTime} onChange={e => setNewSession({ ...newSession, startTime: e.target.value })} style={{ width: 110 }} />
+                <span style={{ color: 'var(--text-muted)' }}>-</span>
+                <input type="time" className="input" value={newSession.endTime} onChange={e => setNewSession({ ...newSession, endTime: e.target.value })} style={{ width: 110 }} />
               </div>
               <div className="form-row">
                 <input className="input" value={newSession.notes} onChange={e => setNewSession({ ...newSession, notes: e.target.value })} placeholder="Notas (opcional)" style={{ flex: 1 }} />
@@ -274,8 +285,9 @@ export function AdminSessions() {
                         <span className={`badge badge-${session.status === 'scheduled' ? 'primary' : session.status === 'completed' ? 'success' : 'error'}`}>
                           {session.status === 'scheduled' ? 'Agendada' : session.status === 'completed' ? 'Concluída' : 'Cancelada'}
                         </span>
-                        {session.type !== 'regular' && (
-                          <span className="badge badge-warning">{session.type === 'extra' ? 'Extra' : session.type === 'makeup' ? 'Reposição' : session.type}</span>
+                        <span className={`badge ${session.classType === 'private' ? 'badge-primary' : 'badge-success'}`}>{session.classType === 'private' ? 'Privada' : 'Grupo'}</span>
+                        {session.professorName && (
+                          <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>{session.professorName}</span>
                         )}
                       </div>
                       <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.375rem', marginTop: '0.25rem' }}>

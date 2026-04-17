@@ -170,22 +170,29 @@ export function LandingPage() {
           <div className="divider" />
           <p className="section-subtitle">{config.servicesSubtitle}</p>
 
-          {/* Drop-in classes by location */}
-          {locations.filter(l => l.dropInPrice > 0).length > 0 && (
+          {/* Drop-in plans */}
+          {plans.filter(p => p.billingType === 'dropin').length > 0 && (
             <div className="dropin-section">
               <h3 className="subsection-title">Aulas Avulsas</h3>
               <p className="subsection-desc">Sem compromisso. Compra uma aula individual.</p>
               <div className="services-grid">
-                {locations.filter(l => l.dropInPrice > 0).map(loc => (
-                  <div key={loc.id} className="service-card dropin-card">
+                {plans.filter(p => p.billingType === 'dropin').map(plan => (
+                  <div key={plan.id} className="service-card dropin-card">
                     <span className="plan-type-badge dropin">Aula Avulsa</span>
-                    <h3>{loc.name}</h3>
-                    <p className="service-desc">{loc.description || loc.address}</p>
+                    <h3>{plan.name}</h3>
+                    <p className="service-desc">{plan.description}</p>
                     <div className="service-price">
-                      <span className="price-amount">{(loc.dropInPrice || 0).toFixed(0)}€</span>
-                      <span className="price-detail">por sessão</span>
+                      <span className="price-amount">{(plan.pricePerSession || 0).toFixed(0)}€</span>
+                      <span className="price-detail">por aula · {plan.locationName}</span>
                     </div>
-                    <Link to={`/checkout?location=${loc.id}&type=dropin`} className="btn btn-outline w-full">
+                    {(plan.features || []).length > 0 && (
+                      <ul className="service-features">
+                        {plan.features.map((f, i) => (
+                          <li key={i}><Check size={16} /> {f}</li>
+                        ))}
+                      </ul>
+                    )}
+                    <Link to={`/checkout?plan=${plan.id}&type=dropin`} className="btn btn-outline w-full">
                       Reservar Aula
                     </Link>
                   </div>
@@ -194,19 +201,19 @@ export function LandingPage() {
             </div>
           )}
 
-          {/* Monthly plans by location */}
-          {plans.length > 0 ? (
+          {/* Subscription plans by location */}
+          {plans.filter(p => p.billingType === 'subscription' || !p.billingType).length > 0 ? (
             <>
               <h3 className="subsection-title" style={{ marginTop: '2.5rem' }}>Planos Mensais</h3>
               <p className="subsection-desc">Subscreve um plano para prática regular com desconto.</p>
-              {Object.entries(plansByLocation).map(([locationName, locationPlans]) => (
+              {Object.entries(plansByLocation).filter(([_, lp]) => lp.some(p => p.billingType === 'subscription' || !p.billingType)).map(([locationName, locationPlans]) => (
                 <div key={locationName} className="location-group">
                   <div className="location-header">
                     <MapPin size={18} />
                     <h3>{locationName}</h3>
                   </div>
                   <div className="services-grid">
-                    {locationPlans.map(plan => (
+                    {locationPlans.filter(p => p.billingType === 'subscription' || !p.billingType).map(plan => (
                       <div key={plan.id} className={`service-card ${plan.isPopular ? 'popular' : ''}`}>
                         {plan.isPopular && <span className="popular-badge">Mais Popular</span>}
                         <span className="plan-type-badge subscription">Plano Mensal</span>
@@ -233,7 +240,7 @@ export function LandingPage() {
                 </div>
               ))}
             </>
-          ) : locations.filter(l => l.dropInPrice > 0).length === 0 ? (
+          ) : plans.filter(p => p.billingType === 'dropin').length === 0 ? (
             <div className="no-services">
               <p>Os planos estarão disponíveis em breve.</p>
             </div>
