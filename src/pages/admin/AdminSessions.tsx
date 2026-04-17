@@ -37,6 +37,7 @@ export function AdminSessions() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [editingSession, setEditingSession] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
 
   // New session form
   const [professors, setProfessors] = useState<Professor[]>([]);
@@ -64,10 +65,14 @@ export function AdminSessions() {
         getDocs(query(collection(db, 'professors'), orderBy('name'))),
       ]);
 
+      // For month view, load the whole month; for week view, just the week
+      const monthStart = new Date(weekBase.getFullYear(), weekBase.getMonth(), 1);
+      const monthEnd = new Date(weekBase.getFullYear(), weekBase.getMonth() + 1, 0, 23, 59, 59);
+
       const allSessions = sessionsSnap.docs.map(d => {
         const data = d.data();
         return { id: d.id, ...data, date: data.date?.toDate(), createdAt: data.createdAt?.toDate(), updatedAt: data.updatedAt?.toDate() } as Session;
-      }).filter(s => s.date >= weekStart && s.date <= weekEnd);
+      }).filter(s => s.date >= monthStart && s.date <= monthEnd);
 
       setSessions(allSessions);
       setPlans(plansSnap.docs.map(d => ({ id: d.id, ...d.data() } as Plan)));
@@ -82,7 +87,29 @@ export function AdminSessions() {
 
   const prevWeek = () => { const d = new Date(weekBase); d.setDate(d.getDate() - 7); setWeekBase(d); };
   const nextWeek = () => { const d = new Date(weekBase); d.setDate(d.getDate() + 7); setWeekBase(d); };
+  const prevMonth = () => { const d = new Date(weekBase); d.setMonth(d.getMonth() - 1); setWeekBase(d); };
+  const nextMonth = () => { const d = new Date(weekBase); d.setMonth(d.getMonth() + 1); setWeekBase(d); };
   const goToday = () => setWeekBase(new Date());
+
+  // Month calendar helper
+  const getMonthDates = (): (Date | null)[][] => {
+    const year = weekBase.getFullYear();
+    const month = weekBase.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const startDow = (firstDay.getDay() + 6) % 7; // Monday = 0
+    const weeks: (Date | null)[][] = [];
+    let currentWeek: (Date | null)[] = Array(startDow).fill(null);
+    for (let day = 1; day <= lastDay.getDate(); day++) {
+      currentWeek.push(new Date(year, month, day));
+      if (currentWeek.length === 7) { weeks.push(currentWeek); currentWeek = []; }
+    }
+    if (currentWeek.length > 0) {
+      while (currentWeek.length < 7) currentWeek.push(null);
+      weeks.push(currentWeek);
+    }
+    return weeks;
+  };
 
   const getSessionsForDay = (date: Date) => sessions.filter(s => isSameDay(s.date, date));
 
@@ -186,18 +213,59 @@ export function AdminSessions() {
 
   return (
     <div>
-      {/* Week Navigation */}
+      {/* Navigation */}
       <div className="week-nav">
-        <button className="btn btn-sm btn-secondary" onClick={prevWeek}><ChevronLeft size={16} /></button>
+        <div className="view-toggle">
+          <button className={`toggle-btn ${viewMode === 'week' ? 'active' : ''}`} onClick={() => setViewMode('week')}>Semana</button>
+          <button className={`toggle-btn ${viewMode === 'month' ? 'active' : ''}`} onClick={() => setViewMode('month')}>Mês</button>
+        </div>
+        <button className="btn btn-sm btn-secondary" onClick={viewMode === 'week' ? prevWeek : prevMonth}><ChevronLeft size={16} /></button>
         <button className="btn btn-sm btn-secondary" onClick={goToday}>Hoje</button>
         <span className="week-label">
-          {weekDates[0].toLocaleDateString('pt-PT', { day: 'numeric', month: 'short' })} - {weekDates[6].toLocaleDateString('pt-PT', { day: 'numeric', month: 'short', year: 'numeric' })}
+          {viewMode === 'week'
+            ? `${weekDates[0].toLocaleDateString('pt-PT', { day: 'numeric', month: 'short' })} - ${weekDates[6].toLocaleDateString('pt-PT', { day: 'numeric', month: 'short', year: 'numeric' })}`
+            : weekBase.toLocaleDateString('pt-PT', { month: 'long', year: 'numeric' })
+          }
         </span>
-        <button className="btn btn-sm btn-secondary" onClick={nextWeek}><ChevronRight size={16} /></button>
+        <button className="btn btn-sm btn-secondary" onClick={viewMode === 'week' ? nextWeek : nextMonth}><ChevronRight size={16} /></button>
       </div>
 
+      {/* Month Calendar */}
+      {viewMode === 'month' && (
+        <div className="month-grid-wrapper">
+          <div className="month-header-row">
+            {['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map(d => (
+              <div key={d} className="month-header-cell">{d}</div>
+            ))}
+          </div>
+          {getMonthDates().map((week, wi) => (
+            <div key={wi} className="month-row">
+              {week.map((date, di) => {
+                if (!date) return <div key={di} className="month-cell empty" />;
+                const daySessions = getSessionsForDay(date);
+                const isToday = isSameDay(date, today);
+                const isSelected = selectedDate && isSameDay(date, selectedDate);
+                return (
+                  <div key={di} className={`month-cell ${isToday ? 'today' : ''} ${isSelected ? 'selected' : ''} ${daySessions.length > 0 ? 'has-sessions' : ''}`} onClick={() => setSelectedDate(date)}>
+                    <span className="month-day-num">{date.getDate()}</span>
+                    {daySessions.length > 0 && (
+                      <div className="month-dots">
+                        {daySessions.slice(0, 3).map((s, si) => (
+                          <span key={si} className={`month-dot ${s.status}`} title={`${s.startTime} ${s.locationName}`} />
+                        ))}
+                        {daySessions.length > 3 && <span className="month-more">+{daySessions.length - 3}</span>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Week Calendar */}
-      <div className="week-grid">
+      {viewMode === 'week' && <div className="week-grid">
         {weekDates.map((date, i) => {
           const daySessions = getSessionsForDay(date);
           const isToday = isSameDay(date, today);
@@ -220,7 +288,7 @@ export function AdminSessions() {
             </div>
           );
         })}
-      </div>
+      </div>}
 
       {/* Day Detail */}
       {selectedDate && (
@@ -351,7 +419,29 @@ export function AdminSessions() {
       )}
 
       <style>{`
-        .week-nav { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
+        .week-nav { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+        .view-toggle { display: flex; background: white; border-radius: var(--radius-lg); padding: 0.2rem; box-shadow: var(--shadow-sm); }
+        .toggle-btn { background: none; border: none; padding: 0.375rem 0.875rem; font-family: var(--font-body); font-size: 0.8125rem; font-weight: 500; color: var(--text-secondary); cursor: pointer; border-radius: var(--radius-md); transition: all var(--transition-fast); }
+        .toggle-btn.active { background: var(--primary); color: white; }
+
+        .month-grid-wrapper { background: white; border-radius: var(--radius-xl); box-shadow: var(--shadow-sm); overflow: hidden; margin-bottom: 2rem; }
+        .month-header-row { display: grid; grid-template-columns: repeat(7, 1fr); border-bottom: 2px solid var(--beige); }
+        .month-header-cell { text-align: center; padding: 0.625rem; font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+        .month-row { display: grid; grid-template-columns: repeat(7, 1fr); }
+        .month-cell { min-height: 70px; padding: 0.375rem; border-right: 1px solid var(--beige); border-bottom: 1px solid var(--beige); cursor: pointer; transition: background var(--transition-fast); }
+        .month-cell:nth-child(7n) { border-right: none; }
+        .month-cell:hover { background: rgba(124,154,114,0.05); }
+        .month-cell.empty { background: var(--bg-secondary); cursor: default; }
+        .month-cell.today { background: rgba(124,154,114,0.08); }
+        .month-cell.selected { background: rgba(124,154,114,0.15); box-shadow: inset 0 0 0 2px var(--primary); }
+        .month-cell.has-sessions .month-day-num { font-weight: 700; color: var(--primary-dark); }
+        .month-day-num { font-size: 0.8125rem; font-weight: 500; color: var(--text-secondary); display: block; margin-bottom: 0.25rem; }
+        .month-dots { display: flex; gap: 0.2rem; flex-wrap: wrap; }
+        .month-dot { width: 7px; height: 7px; border-radius: 50%; }
+        .month-dot.scheduled { background: #3b82f6; }
+        .month-dot.completed { background: #22c55e; }
+        .month-dot.cancelled { background: #d1d5db; }
+        .month-more { font-size: 0.5625rem; color: var(--text-muted); }
         .week-label { font-weight: 600; font-size: 1rem; flex: 1; text-align: center; }
         .week-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.5rem; margin-bottom: 2rem; }
         .day-col { background: white; border-radius: var(--radius-lg); padding: 0.75rem; cursor: pointer; transition: all var(--transition-fast); border: 2px solid transparent; min-height: 100px; }
