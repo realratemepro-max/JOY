@@ -3,6 +3,7 @@ import { collection, getDocs, doc, setDoc, deleteDoc, query, orderBy } from 'fir
 import { db } from '../../services/firebase';
 import { Testimonial } from '../../types';
 import { Plus, Edit2, Trash2, Save, X, Loader, Star } from 'lucide-react';
+import { ImageUpload } from '../../components/ImageUpload';
 
 export function AdminTestimonials() {
   const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
@@ -79,7 +80,7 @@ export function AdminTestimonials() {
           </div>
           <div className="form-group"><label className="label">Texto</label><textarea className="input textarea" rows={4} value={editData.text} onChange={e => setEditData({ ...editData, text: e.target.value })} placeholder="O que o aluno disse..." /></div>
           <div className="edit-grid">
-            <div className="form-group"><label className="label">URL Foto (opcional)</label><input className="input" value={editData.photo || ''} onChange={e => setEditData({ ...editData, photo: e.target.value })} placeholder="https://..." /></div>
+            <ImageUpload value={editData.photo || ''} onChange={url => setEditData({ ...editData, photo: url })} folder="testimonials" label="Foto" />
             <div className="form-group"><label className="label">Ordem</label><input className="input" type="number" value={editData.order} onChange={e => setEditData({ ...editData, order: e.target.value })} /></div>
           </div>
           <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>

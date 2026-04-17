@@ -3,6 +3,7 @@ import { collection, getDocs, doc, setDoc, deleteDoc, query, orderBy } from 'fir
 import { db } from '../../services/firebase';
 import { Professor } from '../../types';
 import { Plus, Edit2, Trash2, Save, X, Loader, User } from 'lucide-react';
+import { ImageUpload } from '../../components/ImageUpload';
 
 export function AdminProfessors() {
   const [professors, setProfessors] = useState<Professor[]>([]);
@@ -63,7 +64,7 @@ export function AdminProfessors() {
             <div className="form-group"><label className="label">Nome</label><input className="input" value={editData.name} onChange={e => setEditData({ ...editData, name: e.target.value })} placeholder="Joaquim Oliveira" /></div>
             <div className="form-group"><label className="label">Estilo de Yoga</label><input className="input" value={editData.style} onChange={e => setEditData({ ...editData, style: e.target.value })} placeholder="Vinyasa, Hatha, Yin..." /></div>
             <div className="form-group"><label className="label">Idade</label><input className="input" type="number" value={editData.age || ''} onChange={e => setEditData({ ...editData, age: e.target.value })} style={{ width: 100 }} /></div>
-            <div className="form-group"><label className="label">URL Foto</label><input className="input" value={editData.photoUrl || ''} onChange={e => setEditData({ ...editData, photoUrl: e.target.value })} placeholder="https://..." /></div>
+            <ImageUpload value={editData.photoUrl || ''} onChange={url => setEditData({ ...editData, photoUrl: url })} folder="professors" label="Foto" />
           </div>
           <div className="form-group"><label className="label">Biografia</label><textarea className="input textarea" rows={4} value={editData.bio} onChange={e => setEditData({ ...editData, bio: e.target.value })} placeholder="Formação, experiência, filosofia..." /></div>
           <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>

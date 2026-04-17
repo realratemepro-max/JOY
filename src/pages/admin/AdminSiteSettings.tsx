@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { getSiteConfig, updateSiteConfig } from '../../services/siteConfig';
 import { SiteConfig } from '../../types';
 import { Save, Loader, CheckCircle, Plus, X } from 'lucide-react';
+import { ImageUpload } from '../../components/ImageUpload';
 
 export function AdminSiteSettings() {
   const [config, setConfig] = useState<SiteConfig | null>(null);
@@ -110,10 +111,7 @@ export function AdminSiteSettings() {
               <label className="label">Texto do Botão Secundário</label>
               <input className="input" value={config.heroSecondaryText} onChange={e => updateField('heroSecondaryText', e.target.value)} />
             </div>
-            <div className="form-group">
-              <label className="label">URL Imagem de Fundo (opcional)</label>
-              <input className="input" value={config.heroImage || ''} onChange={e => updateField('heroImage', e.target.value)} placeholder="https://..." />
-            </div>
+            <ImageUpload value={config.heroImage || ''} onChange={url => updateField('heroImage', url)} folder="site" label="Imagem de Fundo do Hero" />
           </>
         )}
 
@@ -134,10 +132,7 @@ export function AdminSiteSettings() {
               <label className="label">Texto (usa linhas em branco para parágrafos)</label>
               <textarea className="input textarea" rows={8} value={config.aboutText} onChange={e => updateField('aboutText', e.target.value)} />
             </div>
-            <div className="form-group">
-              <label className="label">URL Foto (opcional)</label>
-              <input className="input" value={config.aboutImage || ''} onChange={e => updateField('aboutImage', e.target.value)} placeholder="https://..." />
-            </div>
+            <ImageUpload value={config.aboutImage || ''} onChange={url => updateField('aboutImage', url)} folder="site" label="Foto do Sobre" />
             <div className="form-group">
               <label className="label">Destaques</label>
               {config.aboutHighlights.map((h, i) => (
@@ -301,14 +296,8 @@ export function AdminSiteSettings() {
               </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              <div className="form-group">
-                <label className="label">URL do Logo (opcional)</label>
-                <input className="input" value={config.logo || ''} onChange={e => updateField('logo', e.target.value)} placeholder="https://..." />
-              </div>
-              <div className="form-group">
-                <label className="label">URL do Favicon (opcional)</label>
-                <input className="input" value={config.favicon || ''} onChange={e => updateField('favicon', e.target.value)} placeholder="https://..." />
-              </div>
+              <ImageUpload value={config.logo || ''} onChange={url => updateField('logo', url)} folder="site" label="Logo" />
+              <ImageUpload value={config.favicon || ''} onChange={url => updateField('favicon', url)} folder="site" label="Favicon" />
             </div>
             <div className="form-group">
               <label className="label">Meta Title (SEO)</label>

@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { collection, getDocs, doc, setDoc, deleteDoc, query, orderBy } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { YogaEvent, Location } from '../../types';
-import { Plus, Edit2, Trash2, Save, X, Loader, Calendar, MapPin, Users, Clock, Euro } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, X, Loader, Calendar, MapPin, Users, Clock } from 'lucide-react';
+import { ImageUpload } from '../../components/ImageUpload';
 
 export function AdminEvents() {
   const [events, setEvents] = useState<YogaEvent[]>([]);
@@ -171,10 +172,7 @@ export function AdminEvents() {
             </div>
           </div>
 
-          <div className="form-group">
-            <label className="label">URL Foto (opcional)</label>
-            <input className="input" value={editData.photoUrl || ''} onChange={e => setEditData({ ...editData, photoUrl: e.target.value })} placeholder="https://..." />
-          </div>
+          <ImageUpload value={editData.photoUrl || ''} onChange={url => setEditData({ ...editData, photoUrl: url })} folder="events" label="Foto do Evento" />
 
           <div className="form-group">
             <label className="label">O que inclui</label>
