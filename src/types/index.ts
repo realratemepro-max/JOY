@@ -69,6 +69,21 @@ export interface SiteConfig {
   secondaryColor: string;
   accentColor: string;
 
+  // Business Rules
+  bookingMinHoursBefore: number;   // Min hours before session to book (e.g. 24)
+  cancelLimitHoursBefore: number;  // Max hours before session to cancel (e.g. 2)
+  cancelRefundPolicy: 'credit' | 'refund' | 'none'; // What happens on valid cancel
+  lateCancelPenalty: 'no_refund' | 'half_credit' | 'none'; // Late cancel penalty
+  creditValidityDays: number;      // Days a credit is valid after cancellation (e.g. 30)
+
+  // Payment Provider Config
+  paymentProvider: 'eupago' | 'other';
+  paymentApiKey: string;
+  paymentApiBaseUrl: string;
+  paymentWebhookEncryptionKey?: string;
+  paymentMethodsMbway: boolean;
+  paymentMethodsMultibanco: boolean;
+
   updatedAt: Date;
 }
 
@@ -79,8 +94,11 @@ export interface Location {
   address: string;
   description: string;
   photoUrl?: string;
-  costPerSession: number; // Internal: Joaquim's cost per session
-  capacity: number;       // Max students
+  isExternal: boolean;       // External space where admin teaches but doesn't manage
+  costPerSession: number;    // Legacy: flat cost per session
+  costMonthlyPerSlot: number; // Monthly cost per weekly time slot (e.g. 30€/month per slot)
+  externalRatePerHour?: number; // What admin earns per hour at this external space
+  capacity: number;          // Max students
   amenities: string[];
   mapUrl?: string;
   isActive: boolean;
@@ -90,6 +108,14 @@ export interface Location {
 }
 
 // ============ Professors (Professores) ============
+export type ProfessorPaymentModel = 'per_hour' | 'per_student';
+
+export interface ProfessorRates {
+  group?: number;     // price per hour for group classes
+  private?: number;   // price per hour for private classes
+  event?: number;     // price per hour for events
+}
+
 export interface Professor {
   id: string;
   name: string;
@@ -98,6 +124,13 @@ export interface Professor {
   bio: string;
   photoUrl?: string;
   isActive: boolean;
+
+  // Payment
+  paymentModel: ProfessorPaymentModel;
+  rates: ProfessorRates;          // per_hour: €/h by class type
+  pricePerStudent?: number;       // per_student: € per student per session
+  deductSpaceCost?: boolean;      // per_student: subtract location cost from earnings
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -160,14 +193,17 @@ export interface Subscription {
 // ============ Aulas (Sessions) ============
 export type AttendanceStatus = 'enrolled' | 'attended' | 'absent' | 'cancelled';
 export type SessionClassType = 'group' | 'private'; // Grupo ou Privada
-export type SessionStatus = 'scheduled' | 'completed' | 'cancelled';
-export type SessionRecurrence = 'none' | 'weekly' | 'monthly';
+export type SessionStatus = 'scheduled' | 'completed' | 'cancelled' | 'replaced';
+export type CancelReason = 'professor_sick' | 'space_unavailable' | 'weather' | 'other';
+export type ReplacementStatus = 'pending' | 'accepted' | 'refused';
+export type SessionRecurrence = 'none' | 'weekly';
 
 export interface SessionStudent {
   userId: string;
   userName: string;
   subscriptionId?: string;
   status: AttendanceStatus;
+  replacementResponse?: ReplacementStatus; // response to professor substitution
 }
 
 export interface Session {
@@ -187,6 +223,7 @@ export interface Session {
   date: Date;
   startTime: string;
   endTime: string;
+  duration: number; // minutes (e.g. 60, 75, 90)
   dayOfWeek: number;
 
   // Recurrence
@@ -202,8 +239,35 @@ export interface Session {
   // Status
   status: SessionStatus;
   notes?: string;
+
+  // Cancellation / Replacement
+  cancelReason?: CancelReason;
+  cancelReasonText?: string; // free text when reason is 'other'
+  cancelledBy?: string; // admin userId
+  cancelledAt?: Date;
+  replacementProfessorId?: string;
+  replacementProfessorName?: string;
+
   createdAt: Date;
   updatedAt: Date;
+}
+
+// ============ Credits ============
+export type CreditType = 'dropin_credit' | 'session_return';
+
+export interface Credit {
+  id: string;
+  userId: string;
+  userName: string;
+  type: CreditType;
+  amount: number; // 1 = one session credit
+  reason: string;
+  sessionId: string; // the cancelled session
+  sessionDate?: Date;
+  usedAt?: Date;
+  usedSessionId?: string; // the session where it was redeemed
+  expiresAt: Date;
+  createdAt: Date;
 }
 
 // ============ Events (V2) ============

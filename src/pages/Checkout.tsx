@@ -150,10 +150,12 @@ export function Checkout() {
       if (paymentMethod === 'mbway') {
         const result = await createMbWayPayment({
           planId: isEvent ? event!.id : service!.id,
+          planName: isEvent ? event!.name : service!.name,
           amount: finalAmount,
           phoneNumber,
           userEmail: clientEmail,
           userId,
+          type: isEvent ? 'event_booking' : (service?.billingType === 'dropin' ? 'single_class' : 'plan_subscription'),
         });
         if (result.success) {
           navigate(`/payment-success?method=mbway&paymentId=${result.paymentId}`);
@@ -163,9 +165,11 @@ export function Checkout() {
       } else {
         const result = await createMultibancoPayment({
           planId: isEvent ? event!.id : service!.id,
+          planName: isEvent ? event!.name : service!.name,
           amount: finalAmount,
           userEmail: clientEmail,
           userId,
+          type: isEvent ? 'event_booking' : (service?.billingType === 'dropin' ? 'single_class' : 'plan_subscription'),
         });
         if (result.success) {
           navigate(`/payment-multibanco?paymentId=${result.paymentId}`);

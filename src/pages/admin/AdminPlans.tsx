@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { collection, getDocs, doc, setDoc, deleteDoc, query, orderBy } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { Plan, Location } from '../../types';
-import { Plus, Edit2, Trash2, Save, X, Loader, MapPin } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, X, Loader, MapPin, Check } from 'lucide-react';
 
 const emptyPlan = {
   name: '', description: '', longDescription: '', locationId: '', locationName: '',
@@ -181,14 +181,31 @@ export function AdminPlans() {
           {/* Features */}
           <div className="form-group">
             <label className="label">O que inclui</label>
-            {(editData.features || []).map((f: string, i: number) => (
-              <div key={i} className="array-item">
-                <span style={{ flex: 1, padding: '0.375rem 0' }}>{f}</span>
-                <button className="btn-icon-sm" onClick={() => removeFeature(i)}><X size={14} /></button>
-              </div>
-            ))}
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <input className="input" value={newFeature} onChange={e => setNewFeature(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addFeature())} placeholder="Ex: Prática personalizada..." />
+
+            {/* Existing features from other plans as toggleable suggestions */}
+            {(() => {
+              const allFeatures = Array.from(new Set(plans.flatMap(p => p.features || [])));
+              const currentFeatures: string[] = editData.features || [];
+              const suggestions = allFeatures.filter(f => !currentFeatures.includes(f));
+              return (suggestions.length > 0 || currentFeatures.length > 0) ? (
+                <div className="feature-chips">
+                  {currentFeatures.map((f: string, i: number) => (
+                    <button key={`active-${i}`} className="feature-chip active" onClick={() => removeFeature(i)} title="Clica para remover">
+                      <Check size={12} /> {f}
+                    </button>
+                  ))}
+                  {suggestions.map((f, i) => (
+                    <button key={`sug-${i}`} className="feature-chip" onClick={() => setEditData({ ...editData, features: [...currentFeatures, f] })} title="Clica para adicionar">
+                      <Plus size={12} /> {f}
+                    </button>
+                  ))}
+                </div>
+              ) : null;
+            })()}
+
+            {/* Add new custom feature */}
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+              <input className="input" value={newFeature} onChange={e => setNewFeature(e.target.value)} onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addFeature())} placeholder="Adicionar nova feature..." />
               <button className="btn btn-sm btn-secondary" onClick={addFeature}><Plus size={16} /></button>
             </div>
           </div>
@@ -209,7 +226,7 @@ export function AdminPlans() {
           </div>
 
           <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
-            <button className="btn btn-primary" onClick={handleSave} disabled={saving || !editData.name || !editData.locationId || !editData.priceMonthly}>
+            <button className="btn btn-primary" onClick={handleSave} disabled={saving || !editData.name || !editData.locationId || (editData.billingType === 'subscription' ? !editData.priceMonthly : !editData.pricePerSession)}>
               {saving ? <Loader size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <><Save size={18} /> Guardar</>}
             </button>
             <button className="btn btn-secondary" onClick={cancelEdit}>Cancelar</button>
@@ -258,6 +275,11 @@ export function AdminPlans() {
         .btn-icon-sm { background: none; border: none; cursor: pointer; color: var(--text-muted); padding: 0.25rem; transition: color var(--transition-fast); }
         .btn-icon-sm:hover { color: var(--error); }
         .array-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; border-bottom: 1px solid var(--beige); }
+        .feature-chips { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-bottom: 0.25rem; }
+        .feature-chip { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.3rem 0.625rem; border-radius: 999px; border: 1.5px solid var(--sand); background: white; font-size: 0.8125rem; font-family: var(--font-body); color: var(--text-secondary); cursor: pointer; transition: all var(--transition-fast); }
+        .feature-chip:hover { border-color: var(--primary); color: var(--primary-dark); }
+        .feature-chip.active { background: var(--primary); color: white; border-color: var(--primary); }
+        .feature-chip.active:hover { background: var(--error); border-color: var(--error); }
         .list { display: flex; flex-direction: column; gap: 0.5rem; }
         .list-row { background: white; border-radius: var(--radius-lg); padding: 1rem 1.25rem; display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm); transition: all var(--transition-fast); }
         .list-row.inactive { opacity: 0.6; }

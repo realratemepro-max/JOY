@@ -58,6 +58,17 @@ export const defaultSiteConfig: SiteConfig = {
   primaryColor: '#7c9a72',
   secondaryColor: '#c4a882',
   accentColor: '#c17f59',
+  bookingMinHoursBefore: 24,
+  cancelLimitHoursBefore: 2,
+  cancelRefundPolicy: 'credit',
+  lateCancelPenalty: 'no_refund',
+  creditValidityDays: 30,
+  paymentProvider: 'eupago',
+  paymentApiKey: '',
+  paymentApiBaseUrl: 'https://clientes.eupago.pt',
+  paymentWebhookEncryptionKey: '',
+  paymentMethodsMbway: true,
+  paymentMethodsMultibanco: true,
   updatedAt: new Date(),
 };
 
