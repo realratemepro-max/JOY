@@ -15,17 +15,47 @@ export function ImageUpload({ value, onChange, folder, label = 'Foto' }: ImageUp
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const compressImage = (file: File, maxSizeBytes = 4 * 1024 * 1024): Promise<Blob> =>
+    new Promise((resolve, reject) => {
+      const img = new window.Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const canvas = document.createElement('canvas');
+        // Scale down if image is very large (max 1920px on longest side)
+        const MAX_DIM = 1920;
+        let { width, height } = img;
+        if (width > MAX_DIM || height > MAX_DIM) {
+          const scale = MAX_DIM / Math.max(width, height);
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext('2d')!.drawImage(img, 0, 0, width, height);
+
+        // Try decreasing quality until under maxSizeBytes
+        let quality = 0.85;
+        const tryEncode = () => {
+          canvas.toBlob(blob => {
+            if (!blob) return reject(new Error('Canvas toBlob failed'));
+            if (blob.size <= maxSizeBytes || quality <= 0.3) return resolve(blob);
+            quality -= 0.1;
+            tryEncode();
+          }, 'image/jpeg', quality);
+        };
+        tryEncode();
+      };
+      img.onerror = reject;
+      img.src = url;
+    });
+
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate
     if (!file.type.startsWith('image/')) {
       setError('Seleciona uma imagem (JPG, PNG, WebP)');
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      setError('Imagem demasiado grande (máx 5MB)');
       return;
     }
 
@@ -33,9 +63,10 @@ export function ImageUpload({ value, onChange, folder, label = 'Foto' }: ImageUp
       setUploading(true);
       setError(null);
 
-      const filename = `${folder}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '')}`;
+      const blob = await compressImage(file);
+      const filename = `${folder}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '')}.jpg`;
       const storageRef = ref(storage, filename);
-      await uploadBytes(storageRef, file);
+      await uploadBytes(storageRef, blob, { contentType: 'image/jpeg' });
       const url = await getDownloadURL(storageRef);
       onChange(url);
     } catch (err: any) {
@@ -76,7 +107,7 @@ export function ImageUpload({ value, onChange, folder, label = 'Foto' }: ImageUp
             <>
               <Upload size={24} />
               <span>Clica para carregar foto</span>
-              <span className="upload-hint">JPG, PNG ou WebP (máx 5MB)</span>
+              <span className="upload-hint">JPG, PNG ou WebP — comprimido automaticamente</span>
             </>
           )}
         </div>

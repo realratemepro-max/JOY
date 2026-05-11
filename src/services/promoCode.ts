@@ -23,3 +23,18 @@ export async function validatePromoCode(params: {
     return { valid: false, error: error.message || 'Erro ao validar código promocional' };
   }
 }
+
+export async function applyPromoCode(params: {
+  promoCodeId: string;
+  paymentId: string;
+  discountAmount: number;
+  originalAmount: number;
+  finalAmount: number;
+}): Promise<void> {
+  try {
+    const apply = httpsCallable(functions, 'applyPromoCode');
+    await apply(params);
+  } catch (error: any) {
+    console.error('Apply promo code error:', error);
+  }
+}

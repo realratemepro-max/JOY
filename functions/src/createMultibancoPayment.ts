@@ -6,6 +6,7 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import axios from 'axios';
+import { checkRateLimit, getReqIdentifier } from './utils/rateLimit';
 
 const db = admin.firestore();
 
@@ -17,7 +18,7 @@ async function getConfig() {
   return cachedConfig;
 }
 
-export const createMultibancoPayment = functions.https.onRequest(async (req, res) => {
+export const createMultibancoPayment = functions.region('europe-west1').https.onRequest(async (req, res) => {
   res.set('Access-Control-Allow-Origin', '*');
   res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.set('Access-Control-Allow-Headers', 'Content-Type');
@@ -29,13 +30,19 @@ export const createMultibancoPayment = functions.https.onRequest(async (req, res
     const API_KEY = config.paymentApiKey || process.env.EUPAGO_CLIENT_ID || functions.config().eupago?.api_key;
     const BASE_URL = config.paymentApiBaseUrl || 'https://clientes.eupago.pt';
 
-    const { userId, amount, customerEmail, planId, planName, type } = req.body;
+    const { userId, amount, customerEmail, planId, planName, type, sessionId, attendanceMode } = req.body;
 
     if (!userId || !amount || !customerEmail || !planId) {
       res.status(400).json({ error: 'Campos obrigatórios: userId, amount, customerEmail, planId' }); return;
     }
     if (parseFloat(amount) < 1.0) {
       res.status(400).json({ error: 'Valor mínimo: €1.00' }); return;
+    }
+
+    // Rate limit: 10 requests per minute per user/IP
+    const rlIdentifier = getReqIdentifier(req, userId);
+    if (!(await checkRateLimit('createMultibanco', rlIdentifier, 10))) {
+      res.status(429).json({ error: 'Demasiados pedidos. Tenta de novo dentro de 1 minuto.' }); return;
     }
 
     const identifier = `joy_mb_${userId.substring(0, 8)}_${Date.now()}`;
@@ -45,6 +52,7 @@ export const createMultibancoPayment = functions.https.onRequest(async (req, res
       planId, planName: planName || '',
       type: type || 'plan_subscription',
       amount: parseFloat(amount), method: 'Multibanco', status: 'Pending', identifier,
+      ...(sessionId ? { sessionId, attendanceMode: attendanceMode || 'presencial' } : {}),
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });

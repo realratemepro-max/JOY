@@ -1,7 +1,8 @@
 /**
  * CLOUD FUNCTION: EuPago Webhook Handler
- * Supports Webhooks 1.0 (GET) and 2.0 (POST with optional encryption)
- * JOY model: no auto-subscriptions, packs with expiry, manual purchase
+ * Based on bot4us-crm working implementation
+ * Supports: GET (health check), POST with v1 legacy, v2 transaction, v2 payment formats
+ * JOY model: packs with expiry, no auto-subscriptions
  */
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
@@ -9,7 +10,7 @@ import * as crypto from 'crypto';
 
 const db = admin.firestore();
 
-// Load config from Firestore (cached per function instance)
+// Read config from Firestore
 let cachedConfig: any = null;
 async function getPaymentConfig() {
   if (cachedConfig) return cachedConfig;
@@ -25,132 +26,320 @@ function decryptWebhookData(encryptedData: string, key: string, iv: string): any
   return JSON.parse(decrypted);
 }
 
-function verifySignature(data: string, signature: string, key: string): boolean {
-  try {
-    const generated = crypto.createHmac('sha256', key).update(data).digest('base64');
-    return crypto.timingSafeEqual(Buffer.from(signature, 'base64'), Buffer.from(generated, 'base64'));
-  } catch { return false; }
-}
+export const eupagoWebhook = functions
+  .region('europe-west1')
+  .https.onRequest(async (req, res) => {
+  // CORS
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type');
 
-export const eupagoWebhook = functions.https.onRequest(async (req, res) => {
-  console.log('🔔 Webhook:', { method: req.method, query: req.query, body: req.body });
+  // GET = health check (EuPago verification)
+  if (req.method === 'GET') {
+    console.log('🔔 Webhook GET health check');
+    res.status(200).send('OK');
+    return;
+  }
+
+  if (req.method === 'OPTIONS') { res.status(200).send('OK'); return; }
+  if (req.method !== 'POST') { res.status(405).send('Method Not Allowed'); return; }
+
+  console.log('🔔 Webhook POST received:', JSON.stringify(req.body).substring(0, 500));
 
   try {
     const config = await getPaymentConfig();
-    const encryptionKey = config.paymentWebhookEncryptionKey || process.env.EUPAGO_WEBHOOK_ENCRYPTION_KEY;
+    const encryptionKey = config.paymentWebhookEncryptionKey;
 
-    let transactionData: any;
+    // ============ NORMALIZE PAYLOAD (3 formats) ============
+    let identificador = '';
+    let estado = '';
+    let valor: string | number = '';
+    let referencia = '';
+    let entidade = '';
 
-    // Webhooks 1.0 (GET)
-    if (req.method === 'GET') {
-      const { valor, canal, referencia, transacao, identificador } = req.query;
-      transactionData = {
-        reference: referencia, identifier: identificador,
-        amount: { value: valor }, channel: canal, trid: transacao, status: 'Paid',
-      };
-    }
-    // Webhooks 2.0 (POST)
-    else if (req.method === 'POST') {
-      if (req.body.data && encryptionKey) {
-        const iv = req.headers['x-initialization-vector'] as string;
-        const signature = req.headers['x-signature'] as string;
-        if (!iv) { res.status(400).send('Missing IV'); return; }
-        if (signature && !verifySignature(req.body.data, signature, encryptionKey)) {
-          res.status(401).send('Invalid Signature'); return;
+    let body = req.body;
+
+    // Check for encrypted Webhooks 2.0
+    if (body.data && encryptionKey) {
+      const iv = req.headers['x-initialization-vector'] as string;
+      const signature = req.headers['x-signature'] as string;
+      if (iv) {
+        try {
+          if (signature) {
+            const generated = crypto.createHmac('sha256', encryptionKey).update(body.data).digest('base64');
+            if (!crypto.timingSafeEqual(Buffer.from(signature, 'base64'), Buffer.from(generated, 'base64'))) {
+              console.log('❌ Invalid signature');
+              res.status(401).send('Invalid Signature');
+              return;
+            }
+          }
+          body = decryptWebhookData(body.data, encryptionKey, iv);
+          console.log('🔐 Decrypted:', JSON.stringify(body).substring(0, 300));
+        } catch (e) {
+          console.error('❌ Decryption failed:', e);
         }
-        const webhookData = decryptWebhookData(req.body.data, encryptionKey, iv);
-        const tx = webhookData.transaction || webhookData.transactions;
-        if (tx) transactionData = { ...tx };
-      } else if (req.body.transactions) {
-        transactionData = { ...req.body.transactions };
-      } else {
-        transactionData = req.body;
       }
-    } else {
-      res.status(405).send('Method Not Allowed'); return;
     }
 
-    if (!transactionData) { res.status(400).send('Invalid Payload'); return; }
+    // Format 1: Webhooks 2.0 with "transaction" object
+    if (body.transaction) {
+      const tx = body.transaction;
+      identificador = tx.identifier || '';
+      estado = tx.status || '';
+      valor = tx.amount?.value || tx.amount || '';
+      referencia = tx.reference || '';
+      entidade = tx.entity || '';
+    }
+    // Format 2: Webhooks 2.0 with "transactions" object
+    else if (body.transactions) {
+      const tx = body.transactions;
+      identificador = tx.identifier || '';
+      estado = tx.status || '';
+      valor = tx.amount?.value || tx.amount || '';
+      referencia = tx.reference || '';
+      entidade = tx.entity || '';
+    }
+    // Format 3: Webhooks 2.0 with "payment" object
+    else if (body.payment) {
+      const p = body.payment;
+      identificador = p.identifier || '';
+      estado = p.status || '';
+      valor = p.amount?.value || p.amount || '';
+      referencia = p.reference || '';
+      entidade = p.entity || '';
+    }
+    // Format 4: Legacy v1 (Portuguese field names)
+    else if (body.identificador || body.estado) {
+      identificador = body.identificador || '';
+      estado = body.estado || '';
+      valor = body.valor || '';
+      referencia = body.referencia || '';
+      entidade = body.entidade || '';
+    }
+    // Format 5: Query params (GET-style in POST body)
+    else {
+      identificador = String(body.identifier || body.identificador || '');
+      estado = String(body.status || body.estado || '');
+      valor = String(body.amount || body.valor || '');
+      referencia = String(body.reference || body.referencia || '');
+      entidade = String(body.entity || body.entidade || '');
+    }
 
-    // Find payment in Firestore
+    console.log('📨 Parsed:', { identificador, estado, valor, referencia, entidade });
+
+    if (!identificador && !referencia) {
+      console.log('⚠️ No identifier or reference found');
+      res.status(200).send('No identifier');
+      return;
+    }
+
+    // ============ CHECK IF PAID ============
+    const estadoLower = String(estado).toLowerCase();
+    const isPaid = estadoLower === 'aprovado' || estadoLower === 'paid' ||
+                   estadoLower === 'succeeded' || estadoLower === 'success';
+    const isFailed = estadoLower === 'error' || estadoLower === 'cancel' ||
+                     estadoLower === 'cancelled' || estadoLower === 'expired' ||
+                     estadoLower === 'failed';
+
+    // ============ FIND PAYMENT IN FIRESTORE ============
     let paymentDoc: FirebaseFirestore.QueryDocumentSnapshot | null = null;
     let paymentId: string | null = null;
 
-    if (transactionData.identifier) {
-      const snap = await db.collection('payments').where('identifier', '==', transactionData.identifier).limit(1).get();
+    // By identifier
+    if (identificador) {
+      const snap = await db.collection('payments').where('identifier', '==', identificador).limit(1).get();
       if (!snap.empty) { paymentDoc = snap.docs[0]; paymentId = paymentDoc.id; }
     }
-    if (!paymentDoc && transactionData.reference) {
-      const snap = await db.collection('payments').where('reference', '==', String(transactionData.reference)).limit(1).get();
+    // By reference (Multibanco)
+    if (!paymentDoc && referencia) {
+      const snap = await db.collection('payments').where('reference', '==', String(referencia)).limit(1).get();
+      if (!snap.empty) { paymentDoc = snap.docs[0]; paymentId = paymentDoc.id; }
+    }
+    // By eupagoReference
+    if (!paymentDoc && referencia) {
+      const snap = await db.collection('payments').where('eupagoReference', '==', String(referencia)).limit(1).get();
       if (!snap.empty) { paymentDoc = snap.docs[0]; paymentId = paymentDoc.id; }
     }
 
     if (!paymentDoc || !paymentId) {
-      console.log('⚠️ Payment not found');
-      res.status(200).send('Payment not found but acknowledged'); return;
+      console.log('⚠️ Payment not found for:', { identificador, referencia });
+      res.status(200).send('Payment not found but acknowledged');
+      return;
     }
 
     const paymentData = paymentDoc.data();
     const userId = paymentData.userId;
 
-    // Update payment status
-    await db.collection('payments').doc(paymentId).update({
-      status: transactionData.status,
-      eupagoTransactionId: transactionData.trid || null,
-      paidAt: transactionData.status === 'Paid' ? admin.firestore.FieldValue.serverTimestamp() : null,
+    console.log('✅ Payment found:', paymentId, 'User:', userId, 'Status:', estado);
+
+    // ============ UPDATE PAYMENT STATUS ============
+    const updateData: any = {
+      status: isPaid ? 'Paid' : isFailed ? 'Failed' : estado,
       webhookReceivedAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+      webhookRaw: { identificador, estado, valor, referencia, entidade },
+    };
+    if (isPaid) updateData.paidAt = admin.firestore.FieldValue.serverTimestamp();
 
-    console.log('✅ Payment updated:', paymentId, transactionData.status);
+    await db.collection('payments').doc(paymentId).update(updateData);
+    console.log('✅ Payment updated:', paymentId, isPaid ? 'PAID' : estado);
 
-    if (transactionData.status === 'Paid') {
-      await handlePaidPayment(userId, paymentData, paymentId, config);
+    // ============ ACTIVATE PLAN IF PAID ============
+    if (isPaid) {
+      await handlePaidPayment(userId, paymentData, paymentId);
     }
 
     res.status(200).send('OK');
   } catch (error: any) {
-    console.error('❌ Webhook error:', error);
+    console.error('❌ Webhook error:', error.message || error);
+    // Always return 200 to prevent retries
     res.status(200).send('Error processed');
   }
 });
 
 /**
- * Handle paid payment — activate pack / credit based on plan type
- * NO auto-subscriptions. Client buys manually each time.
+ * Handle paid payment — activate pack / credit
  */
-async function handlePaidPayment(userId: string, paymentData: any, paymentId: string, config: any) {
+async function handlePaidPayment(userId: string, paymentData: any, paymentId: string) {
   try {
-    const { planId, type } = paymentData;
-    const creditValidityDays = config.creditValidityDays || 30;
+    const { planId, type, giftCardId, giftCardDiscount } = paymentData;
+    const config = await getPaymentConfig();
+
+    // Deduct partial gift card balance if used alongside EuPago payment
+    if (giftCardId && giftCardDiscount) {
+      const gcRef = db.collection('giftCards').doc(giftCardId);
+      const gcDoc = await gcRef.get();
+      if (gcDoc.exists) {
+        const gc = gcDoc.data()!;
+        const newBalance = Math.max(0, (gc.remainingBalance || 0) - giftCardDiscount);
+        await gcRef.update({
+          remainingBalance: newBalance,
+          status: newBalance <= 0 ? 'used' : 'active',
+          ...(newBalance <= 0 ? { usedAt: admin.firestore.FieldValue.serverTimestamp() } : {}),
+          usedByUserId: userId,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+    }
+
+    // GIFT CARD PURCHASE — create the gift card and send email to recipient
+    if (type === 'gift_card') {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let code = 'VALE-';
+      for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+      const expiresAt = new Date();
+      expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+      await db.collection('giftCards').add({
+        code,
+        initialBalance: paymentData.amount,
+        remainingBalance: paymentData.amount,
+        purchaserEmail: paymentData.userEmail || '',
+        purchaserName: paymentData.purchaserName || '',
+        recipientName: paymentData.recipientName || '',
+        recipientEmail: paymentData.recipientEmail || '',
+        message: paymentData.giftMessage || '',
+        status: 'active',
+        paymentId,
+        createdBy: 'online',
+        expiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      console.log('🎁 Gift card created with code:', code);
+      return;
+    }
 
     // EVENT BOOKING
     if (type === 'event_booking') {
       console.log('🎫 Event booking paid:', paymentId);
-      // TODO: Add user to event enrolledStudents
       return;
     }
 
-    // DROP-IN / SINGLE CLASS — give 1 session credit
+    // DROP-IN — create a 1-session purchase doc (uniform with plans), enroll if sessionId provided
     if (type === 'single_class' || type === 'dropin') {
       console.log('🎟️ Drop-in paid:', paymentId);
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + creditValidityDays);
-      await db.collection('credits').add({
-        userId,
-        userName: paymentData.userEmail || '',
-        type: 'dropin_credit',
-        amount: 1,
-        reason: 'Aula avulsa comprada',
-        sessionId: '',
+      const targetSessionId = paymentData.sessionId;
+
+      // Lookup plan info for locationId/locationName + price
+      let dropinPlan: any = null;
+      if (planId) {
+        const planSnap = await db.collection('plans').doc(planId).get();
+        if (planSnap.exists) dropinPlan = planSnap.data();
+      }
+
+      // Lookup user name
+      let userName = paymentData.userEmail || '';
+      try {
+        const userSnap = await db.collection('users').doc(userId).get();
+        if (userSnap.exists) userName = userSnap.data()?.name || userName;
+      } catch (e) { /* ignore */ }
+
+      const nowDate = new Date();
+      // Validity priority: plan.validityDays → config.dropinValidityDays → 15
+      const dropinDays = (dropinPlan && dropinPlan.validityDays)
+        || config.dropinValidityDays
+        || 15;
+      const dropinExpiry = new Date(nowDate);
+      dropinExpiry.setDate(dropinExpiry.getDate() + dropinDays);
+
+      // Create the purchase doc — sessionsUsed=1 if we will enroll, 0 otherwise
+      const willEnroll = !!targetSessionId;
+      const purchaseRef = await db.collection('purchases').add({
+        userId, userName, userEmail: paymentData.userEmail || '',
+        planId: planId || '',
+        planName: (dropinPlan && dropinPlan.name) || paymentData.planName || 'Aula Avulsa',
+        locationId: (dropinPlan && dropinPlan.locationId) || '',
+        locationName: (dropinPlan && dropinPlan.locationName) || '',
+        priceMonthly: paymentData.amount,
+        billingType: 'dropin',
+        status: 'active',
+        purchaseDate: admin.firestore.Timestamp.fromDate(nowDate),
+        startDate: admin.firestore.Timestamp.fromDate(nowDate),
+        endDate: admin.firestore.Timestamp.fromDate(dropinExpiry),
+        sessionsTotal: 1,
+        sessionsUsed: willEnroll ? 1 : 0,
+        sessionsRemaining: willEnroll ? 0 : 1,
         paymentId,
-        expiresAt: admin.firestore.Timestamp.fromDate(expiresAt),
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
+      console.log('✅ Drop-in purchase created:', purchaseRef.id);
+
+      // If a session was specified, enroll the user with this purchaseId
+      if (targetSessionId) {
+        try {
+          const sessionRef = db.collection('sessions').doc(targetSessionId);
+          const sessionSnap = await sessionRef.get();
+          if (!sessionSnap.exists) {
+            console.error('❌ Drop-in target session not found:', targetSessionId);
+          } else {
+            const sessionData = sessionSnap.data()!;
+            const enrolled = (sessionData.enrolledStudents || []) as any[];
+            const alreadyEnrolled = enrolled.some(e => e.userId === userId);
+            if (alreadyEnrolled) {
+              console.log('ℹ️ User already enrolled in session:', targetSessionId);
+            } else {
+              const newStudent: any = {
+                userId, userName, status: 'enrolled',
+                attendanceMode: paymentData.attendanceMode || 'presencial',
+                paymentId,
+                purchaseId: purchaseRef.id,
+              };
+              await sessionRef.update({
+                enrolledStudents: [...enrolled, newStudent],
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              });
+              console.log('✅ User enrolled in session via drop-in:', targetSessionId);
+            }
+          }
+        } catch (e) {
+          console.error('❌ Failed to enroll user in session after drop-in payment:', e);
+        }
+      }
       return;
     }
 
-    // PLAN PURCHASE — activate pack with sessions and expiry
+    // PLAN PURCHASE — activate pack
     if (!planId) { console.error('❌ No planId'); return; }
 
     const planDoc = await db.collection('plans').doc(planId).get();
@@ -159,50 +348,52 @@ async function handlePaidPayment(userId: string, paymentData: any, paymentId: st
     const plan = planDoc.data()!;
     const now = new Date();
     const periodEnd = new Date(now);
-    periodEnd.setMonth(periodEnd.getMonth() + 1); // 1 month validity
+    const validityDays = plan.validityDays || 30;
+    periodEnd.setDate(periodEnd.getDate() + validityDays);
 
-    const sessionsPerWeek = plan.sessionsPerWeek || 1;
-    const totalSessions = Math.ceil(sessionsPerWeek * 4.33); // ~sessions in a month
+    // CONTENT PLAN — library subscription
+    if (plan.isContentPlan) {
+      const subRef = await db.collection('contentSubscriptions').add({
+        userId, userEmail: paymentData.userEmail || '', userName: paymentData.userName || paymentData.userEmail || '',
+        planId, planName: plan.name || '',
+        price: plan.priceMonthly || paymentData.amount,
+        status: 'active',
+        startDate: admin.firestore.Timestamp.fromDate(now),
+        endDate: admin.firestore.Timestamp.fromDate(periodEnd),
+        paymentId,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      console.log('✅ Content subscription activated:', subRef.id, `until ${periodEnd.toISOString().slice(0, 10)}`);
+      return;
+    }
 
-    // Create a purchase record (not a recurring subscription)
-    const purchaseData: any = {
-      userId,
-      userName: paymentData.userEmail || '',
-      userEmail: paymentData.userEmail || '',
-      planId,
-      planName: plan.name || '',
-      locationId: plan.locationId || '',
-      locationName: plan.locationName || '',
-      sessionsPerWeek,
+    const totalSessions = plan.sessionsTotal || Math.ceil((plan.sessionsPerWeek || 1) * 4.33);
+
+    const purchaseRef = await db.collection('purchases').add({
+      userId, userName: paymentData.userEmail || '', userEmail: paymentData.userEmail || '',
+      planId, planName: plan.name || '',
+      locationId: plan.locationId || '', locationName: plan.locationName || '',
       priceMonthly: plan.priceMonthly || paymentData.amount,
       status: 'active',
       purchaseDate: admin.firestore.Timestamp.fromDate(now),
       startDate: admin.firestore.Timestamp.fromDate(now),
       endDate: admin.firestore.Timestamp.fromDate(periodEnd),
-      sessionsTotal: totalSessions,
-      sessionsUsed: 0,
-      sessionsRemaining: totalSessions,
+      sessionsTotal: totalSessions, sessionsUsed: 0, sessionsRemaining: totalSessions,
       paymentId,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
+    });
 
-    const purchaseRef = await db.collection('purchases').add(purchaseData);
     console.log('✅ Purchase activated:', purchaseRef.id, `(${totalSessions} sessions until ${periodEnd.toISOString().slice(0, 10)})`);
 
     // Update user
     try {
       await db.collection('users').doc(userId).update({
-        role: 'client',
-        activePlanId: planId,
-        activePlanName: plan.name,
-        activePurchaseId: purchaseRef.id,
-        status: 'active',
+        role: 'client', activePlanId: planId, activePlanName: plan.name,
+        activePurchaseId: purchaseRef.id, status: 'active',
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-    } catch (e) {
-      console.log('⚠️ Could not update user doc');
-    }
+    } catch (e) { console.log('⚠️ Could not update user doc'); }
   } catch (error) {
     console.error('❌ handlePaidPayment error:', error);
   }

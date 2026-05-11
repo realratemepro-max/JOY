@@ -4,7 +4,7 @@
  * Adapted from myimomatepro for JOY
  */
 
-const FUNCTIONS_URL = 'https://us-central1-realrateme-731f1.cloudfunctions.net';
+const FUNCTIONS_URL = 'https://europe-west1-realrateme-731f1.cloudfunctions.net';
 
 export interface MbWayPaymentParams {
   planId: string;
@@ -14,6 +14,8 @@ export interface MbWayPaymentParams {
   userEmail: string;
   userId: string;
   type?: 'plan_subscription' | 'event_booking' | 'single_class';
+  sessionId?: string;
+  attendanceMode?: 'presencial' | 'online';
 }
 
 export interface MultibancoPaymentParams {
@@ -23,6 +25,8 @@ export interface MultibancoPaymentParams {
   userEmail: string;
   userId: string;
   type?: 'plan_subscription' | 'event_booking' | 'single_class';
+  sessionId?: string;
+  attendanceMode?: 'presencial' | 'online';
 }
 
 export interface PaymentResult {
@@ -50,6 +54,8 @@ export async function createMbWayPayment(params: MbWayPaymentParams): Promise<Pa
         planId: params.planId,
         planName: params.planName || '',
         type: params.type || 'plan_subscription',
+        sessionId: params.sessionId || null,
+        attendanceMode: params.attendanceMode || null,
       }),
     });
     const data = await response.json();
@@ -75,6 +81,8 @@ export async function createMultibancoPayment(params: MultibancoPaymentParams): 
         planId: params.planId,
         planName: params.planName || '',
         type: params.type || 'plan_subscription',
+        sessionId: params.sessionId || null,
+        attendanceMode: params.attendanceMode || null,
       }),
     });
     const data = await response.json();

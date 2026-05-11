@@ -1,5 +1,6 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
+import { checkRateLimit, getCallerIdentifier } from './utils/rateLimit';
 
 export const validatePromoCode = functions.https.onCall(async (data, context) => {
   // Verify authentication
@@ -11,6 +12,12 @@ export const validatePromoCode = functions.https.onCall(async (data, context) =>
 
   if (!code || !planId || !amount) {
     throw new functions.https.HttpsError('invalid-argument', 'Missing required fields');
+  }
+
+  // Rate limit: 10 validations per minute (prevent brute-force of codes)
+  const rlIdentifier = getCallerIdentifier(context, data);
+  if (!(await checkRateLimit('validatePromo', rlIdentifier, 10))) {
+    throw new functions.https.HttpsError('resource-exhausted', 'Demasiadas tentativas. Aguarda 1 minuto.');
   }
 
   const db = admin.firestore();

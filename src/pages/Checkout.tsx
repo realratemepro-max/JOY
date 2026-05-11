@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { db } from '../services/firebase';
 import { useAuth } from '../context/AuthContext';
-import { Plan, YogaEvent } from '../types';
+import { Plan, YogaEvent, GiftCard } from '../types';
 import { createMbWayPayment, createMultibancoPayment } from '../services/eupago';
-import { validatePromoCode } from '../services/promoCode';
+import { validatePromoCode, applyPromoCode } from '../services/promoCode';
 import {
   CreditCard, Smartphone, Building2, ArrowLeft, Loader,
-  CheckCircle, AlertCircle, Tag, X
+  CheckCircle, AlertCircle, Tag, X, Gift
 } from 'lucide-react';
 
 type PaymentMethod = 'mbway' | 'multibanco';
@@ -20,6 +21,8 @@ export function Checkout() {
   const planId = searchParams.get('plan');
   const eventId = searchParams.get('event');
   const purchaseType = searchParams.get('type') || 'subscription'; // subscription, dropin, pack
+  const sessionId = searchParams.get('sessionId') || undefined;
+  const attendanceMode = (searchParams.get('mode') as 'presencial' | 'online' | null) || undefined;
   const isEvent = !!eventId;
 
   const [service, setService] = useState<Plan | null>(null);
@@ -33,6 +36,14 @@ export function Checkout() {
   // Client info (for non-logged-in purchases)
   const [clientName, setClientName] = useState('');
   const [clientEmail, setClientEmail] = useState('');
+
+  // Gift card
+  const [giftCardCode, setGiftCardCode] = useState('');
+  const [gcValidating, setGcValidating] = useState(false);
+  const [gcData, setGcData] = useState<GiftCard | null>(null);
+  const [gcApplied, setGcApplied] = useState(false);
+  const [gcError, setGcError] = useState<string | null>(null);
+  const [gcPaymentLoading, setGcPaymentLoading] = useState(false);
 
   // Promo code
   const [promoCode, setPromoCode] = useState('');
@@ -133,6 +144,51 @@ export function Checkout() {
     setPromoError(null);
   };
 
+  const handleValidateGiftCard = async () => {
+    if (!giftCardCode.trim()) return;
+    setGcValidating(true);
+    setGcError(null);
+    try {
+      const snap = await getDocs(query(collection(db, 'giftCards'), where('code', '==', giftCardCode.trim().toUpperCase())));
+      if (snap.empty) { setGcError('Vale oferta não encontrado'); return; }
+      const data = snap.docs[0].data();
+      const card = { id: snap.docs[0].id, ...data, expiresAt: data.expiresAt?.toDate(), createdAt: data.createdAt?.toDate(), updatedAt: data.updatedAt?.toDate() } as GiftCard;
+      if (card.status !== 'active') { setGcError('Vale oferta não está ativo'); return; }
+      if (card.expiresAt < new Date()) { setGcError('Vale oferta expirado'); return; }
+      if (card.remainingBalance <= 0) { setGcError('Vale oferta sem saldo disponível'); return; }
+      setGcData(card);
+      setGcApplied(true);
+    } catch (err) { setGcError('Erro ao validar vale oferta'); }
+    finally { setGcValidating(false); }
+  };
+
+  const handleRemoveGiftCard = () => { setGiftCardCode(''); setGcData(null); setGcApplied(false); setGcError(null); };
+
+  const handleGiftCardFullPayment = async () => {
+    if (!gcData || !user) return;
+    if (!clientEmail) { setError('Por favor insere o teu email'); return; }
+    setGcPaymentLoading(true);
+    setError(null);
+    try {
+      const fns = getFunctions(undefined, 'europe-west1');
+      const redeem = httpsCallable(fns, 'redeemGiftCard');
+      const result: any = await redeem({
+        giftCardCode: gcData.code,
+        planId: isEvent ? event?.id : service?.id,
+        userId: user.uid,
+        userEmail: clientEmail,
+        type: isEvent ? 'event_booking' : (service?.billingType === 'dropin' ? 'single_class' : 'plan_subscription'),
+        amount: basePrice,
+      });
+      if (result.data?.success) {
+        navigate(`/payment-success?method=gift_card&paymentId=${result.data.paymentId}`);
+      } else {
+        setError(result.data?.error || 'Erro ao processar vale');
+      }
+    } catch (err: any) { setError(err.message || 'Erro ao processar vale oferta'); }
+    finally { setGcPaymentLoading(false); }
+  };
+
   const handlePayment = async () => {
     if ((!service && !event) || !paymentMethod) return;
     if (!clientEmail) { setError('Por favor insere o teu email'); return; }
@@ -144,20 +200,24 @@ export function Checkout() {
     try {
       setProcessing(true);
       setError(null);
-      const finalAmount = promoDiscount ? promoDiscount.finalAmount : itemPrice;
       const userId = user?.uid || 'guest_' + Date.now();
+      const payType = isEvent ? 'event_booking' : (service?.billingType === 'dropin' ? 'single_class' : 'plan_subscription');
 
       if (paymentMethod === 'mbway') {
         const result = await createMbWayPayment({
           planId: isEvent ? event!.id : service!.id,
           planName: isEvent ? event!.name : service!.name,
-          amount: finalAmount,
+          amount: finalTotal,
           phoneNumber,
           userEmail: clientEmail,
           userId,
-          type: isEvent ? 'event_booking' : (service?.billingType === 'dropin' ? 'single_class' : 'plan_subscription'),
+          type: payType,
+          sessionId,
+          attendanceMode,
         });
         if (result.success) {
+          if (promoDiscount) await applyPromoCode({ promoCodeId: promoDiscount.promoCodeId, paymentId: result.paymentId!, discountAmount: promoDiscount.discountAmount, originalAmount: itemPrice, finalAmount: finalTotal });
+          if (gcApplied && gcData) await updateDoc(doc(db, 'payments', result.paymentId!), { giftCardCode: gcData.code, giftCardId: gcData.id, giftCardDiscount: gcDiscount });
           navigate(`/payment-success?method=mbway&paymentId=${result.paymentId}`);
         } else {
           setError(result.error || 'Erro ao processar pagamento MB WAY');
@@ -166,12 +226,16 @@ export function Checkout() {
         const result = await createMultibancoPayment({
           planId: isEvent ? event!.id : service!.id,
           planName: isEvent ? event!.name : service!.name,
-          amount: finalAmount,
+          amount: finalTotal,
           userEmail: clientEmail,
           userId,
-          type: isEvent ? 'event_booking' : (service?.billingType === 'dropin' ? 'single_class' : 'plan_subscription'),
+          type: payType,
+          sessionId,
+          attendanceMode,
         });
         if (result.success) {
+          if (promoDiscount) await applyPromoCode({ promoCodeId: promoDiscount.promoCodeId, paymentId: result.paymentId!, discountAmount: promoDiscount.discountAmount, originalAmount: itemPrice, finalAmount: finalTotal });
+          if (gcApplied && gcData) await updateDoc(doc(db, 'payments', result.paymentId!), { giftCardCode: gcData.code, giftCardId: gcData.id, giftCardDiscount: gcDiscount });
           navigate(`/payment-multibanco?paymentId=${result.paymentId}`);
         } else {
           setError(result.error || 'Erro ao gerar referência Multibanco');
@@ -214,15 +278,25 @@ export function Checkout() {
   const itemFeatures = isEvent ? (event?.features || []) : (service?.features || []);
 
   // Calculate price based on purchase type
-  let itemPrice = 0;
+  let basePrice = 0;
   let itemPriceLabel = '';
   if (isEvent) {
-    itemPrice = event?.price || 0;
+    basePrice = event?.price || 0;
     itemPriceLabel = `${event?.date?.toLocaleDateString('pt-PT', { day: 'numeric', month: 'long' })} · ${event?.startTime}-${event?.endTime}`;
   } else if (service) {
-    itemPrice = service.priceMonthly || (service as any)?.price || 0;
-    itemPriceLabel = service.sessionsPerWeek ? `${service.sessionsPerWeek}x por semana · /mês` : (service as any)?.duration || '';
+    if (service.billingType === 'dropin') {
+      basePrice = service.pricePerSession || 0;
+      itemPriceLabel = `1 aula · ${service.locationName || ''}`;
+    } else {
+      basePrice = service.priceMonthly || (service as any)?.price || 0;
+      itemPriceLabel = service.sessionsTotal ? `${service.sessionsTotal} aulas · /mês` : (service as any)?.duration || '';
+    }
   }
+  const itemPrice = basePrice; // alias for existing code
+  const afterPromo = promoDiscount ? promoDiscount.finalAmount : basePrice;
+  const gcDiscount = gcApplied && gcData ? Math.min(gcData.remainingBalance, afterPromo) : 0;
+  const finalTotal = Math.max(0, afterPromo - gcDiscount);
+  const gcFullyCovered = gcDiscount >= afterPromo && afterPromo > 0;
 
   if (!service && !event) return null;
 
@@ -286,20 +360,54 @@ export function Checkout() {
                 {promoError && <p className="promo-error">{promoError}</p>}
               </div>
 
+              {/* Gift Card */}
+              <div className="promo-code-section">
+                {!gcApplied ? (
+                  <div className="promo-input-group">
+                    <input
+                      type="text"
+                      placeholder="Vale oferta (ex: VALE-ABC123)"
+                      value={giftCardCode}
+                      onChange={e => setGiftCardCode(e.target.value.toUpperCase())}
+                      onKeyDown={e => e.key === 'Enter' && handleValidateGiftCard()}
+                      disabled={gcValidating}
+                    />
+                    <button className="btn btn-outline btn-sm" onClick={handleValidateGiftCard} disabled={!giftCardCode.trim() || gcValidating}>
+                      {gcValidating ? <Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <><Gift size={16} /> Aplicar</>}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="promo-applied" style={{ background: '#f0fdf4', borderColor: '#86efac' }}>
+                    <div className="promo-info" style={{ color: '#166534' }}>
+                      <Gift size={16} />
+                      <span>Vale <strong>{gcData?.code}</strong> — {gcData?.remainingBalance.toFixed(2).replace('.', ',')}€ disponível</span>
+                    </div>
+                    <button className="remove-promo" onClick={handleRemoveGiftCard} style={{ color: '#166534' }}><X size={16} /></button>
+                  </div>
+                )}
+                {gcError && <p className="promo-error">{gcError}</p>}
+              </div>
+
               {/* Total */}
               <div className="payment-total">
+                {(promoDiscount || gcApplied) && (
+                  <div className="subtotal-row"><span>Subtotal</span><span>{basePrice.toFixed(2).replace('.', ',')}€</span></div>
+                )}
                 {promoDiscount && (
-                  <>
-                    <div className="subtotal-row"><span>Subtotal</span><span>{itemPrice.toFixed(2).replace('.', ',')}€</span></div>
-                    <div className="discount-row">
-                      <span>Desconto ({promoDiscount.discountType === 'percentage' ? `${promoDiscount.discountValue}%` : `${promoDiscount.discountValue}€`})</span>
-                      <span className="discount-amount">-{promoDiscount.discountAmount.toFixed(2).replace('.', ',')}€</span>
-                    </div>
-                  </>
+                  <div className="discount-row">
+                    <span>Código promo ({promoDiscount.discountType === 'percentage' ? `${promoDiscount.discountValue}%` : `${promoDiscount.discountValue}€`})</span>
+                    <span className="discount-amount">-{promoDiscount.discountAmount.toFixed(2).replace('.', ',')}€</span>
+                  </div>
+                )}
+                {gcApplied && gcDiscount > 0 && (
+                  <div className="discount-row">
+                    <span>Vale oferta</span>
+                    <span className="discount-amount">-{gcDiscount.toFixed(2).replace('.', ',')}€</span>
+                  </div>
                 )}
                 <div className="total-row">
                   <span>Total</span>
-                  <span className="total-amount">{(promoDiscount ? promoDiscount.finalAmount : itemPrice).toFixed(2).replace('.', ',')}€</span>
+                  <span className="total-amount">{finalTotal.toFixed(2).replace('.', ',')}€</span>
                 </div>
               </div>
             </div>
@@ -359,7 +467,18 @@ export function Checkout() {
               </div>
             )}
 
-            <button
+            {gcFullyCovered && (
+              <button
+                className="btn btn-primary btn-lg w-full"
+                onClick={handleGiftCardFullPayment}
+                disabled={gcPaymentLoading || !clientEmail}
+                style={{ marginBottom: '0.75rem', background: 'linear-gradient(135deg, #166534, #16a34a)' }}
+              >
+                {gcPaymentLoading ? <><Loader size={20} style={{ animation: 'spin 1s linear infinite' }} /> A processar...</> : <><Gift size={20} /> Pagar com Vale Oferta</>}
+              </button>
+            )}
+
+            {!gcFullyCovered && <button
               className="btn btn-primary btn-lg w-full"
               onClick={handlePayment}
               disabled={!paymentMethod || processing || (paymentMethod === 'mbway' && phoneNumber.length < 9) || !clientEmail}
@@ -369,7 +488,7 @@ export function Checkout() {
               ) : (
                 <><CreditCard size={20} /> {paymentMethod === 'mbway' ? 'Pagar com MB WAY' : paymentMethod === 'multibanco' ? 'Gerar Referência' : 'Seleciona método'}</>
               )}
-            </button>
+            </button>}
 
             <p style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontSize: '0.875rem', color: 'var(--success)', marginTop: '1rem' }}>
               <CheckCircle size={16} /> Pagamento 100% seguro via EuPago

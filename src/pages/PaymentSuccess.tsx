@@ -1,21 +1,29 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, query, collection, where, getDocs } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { db } from '../services/firebase';
-import { Payment } from '../types';
-import { CheckCircle, Loader, ArrowRight, Download } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { Payment, SiteConfig } from '../types';
+import { getSiteConfig, defaultSiteConfig } from '../services/siteConfig';
+import { CheckCircle, Loader, ArrowRight, Download, CalendarPlus } from 'lucide-react';
 
 export function PaymentSuccess() {
   const [searchParams] = useSearchParams();
+  const { user } = useAuth();
   const paymentId = searchParams.get('paymentId');
   const method = searchParams.get('method');
   const [payment, setPayment] = useState<Payment | null>(null);
+  const [config, setConfig] = useState<SiteConfig>(defaultSiteConfig);
+  const [isPrivatePlan, setIsPrivatePlan] = useState(false);
+  const [purchaseId, setPurchaseId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!paymentId) return;
     loadPayment();
+    getSiteConfig().then(setConfig).catch(() => {});
   }, [paymentId]);
 
   const loadPayment = async () => {
@@ -30,6 +38,24 @@ export function PaymentSuccess() {
         paidAt: data.paidAt?.toDate(),
         expiresAt: data.expiresAt?.toDate(),
       } as Payment);
+      // Check if plan is private
+      const pData = paymentDoc.data();
+      if (pData.planId) {
+        const planDoc = await getDoc(doc(db, 'plans', pData.planId));
+        if (planDoc.exists() && planDoc.data().classType === 'private') {
+          setIsPrivatePlan(true);
+          // Find the purchase created by webhook
+          const purchasesSnap = await getDocs(query(collection(db, 'purchases'), where('paymentId', '==', paymentId)));
+          if (!purchasesSnap.empty) setPurchaseId(purchasesSnap.docs[0].id);
+        }
+      }
+      // Fire referral processing (non-blocking, only on actual paid payments)
+      if (user && data.status === 'Paid') {
+        try {
+          const fns = getFunctions(undefined, 'europe-west1');
+          await (httpsCallable(fns, 'processReferral'))({ referredUserId: user.uid });
+        } catch { /* non-blocking */ }
+      }
     } catch { setError('Erro ao carregar pagamento'); }
     finally { setLoading(false); }
   };
@@ -61,11 +87,11 @@ export function PaymentSuccess() {
     <div className="payment-result-page">
       <div className="result-container">
         <div className="result-icon success"><CheckCircle size={64} /></div>
-        <h1>Pagamento Confirmado!</h1>
+        <h1>{config.paymentSuccessTitle || 'Pagamento Confirmado!'}</h1>
         <p className="result-message">
-          {method === 'mbway'
+          {config.paymentSuccessSubtitle || (method === 'mbway'
             ? 'O teu pagamento MB WAY foi processado com sucesso.'
-            : 'O teu pagamento foi confirmado.'}
+            : 'O teu pagamento foi confirmado.')}
         </p>
 
         <div className="payment-details">
@@ -80,17 +106,42 @@ export function PaymentSuccess() {
           </div>
         </div>
 
-        <div className="next-steps">
-          <h3>Próximos Passos</h3>
-          <ul>
-            <li>O Joaquim entrará em contacto para agendar a tua aula</li>
-            <li>Receberás um email de confirmação</li>
-            <li>Prepara roupa confortável para a prática</li>
-          </ul>
-        </div>
+        {(config.paymentSuccessSteps && config.paymentSuccessSteps.length > 0) && (
+          <div className="next-steps">
+            <h3>{config.paymentSuccessStepsTitle || 'Próximos Passos'}</h3>
+            <ul>
+              {config.paymentSuccessSteps.map((step, i) => (
+                <li key={i}>{step}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {isPrivatePlan && (
+          <div style={{ background: 'rgba(139,92,246,0.08)', border: '1.5px solid rgba(139,92,246,0.3)', borderRadius: 'var(--radius-xl)', padding: '1.5rem', marginBottom: '1.5rem', textAlign: 'center' }}>
+            <CalendarPlus size={32} color="#7c3aed" style={{ marginBottom: '0.75rem' }} />
+            <h3 style={{ fontFamily: 'var(--font-body)', color: '#6d28d9', marginBottom: '0.5rem' }}>Aula Privada — Agenda a tua data!</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9375rem', marginBottom: '1rem' }}>
+              Indica as tuas preferências de data e horário. Vamos confirmar contigo em breve.
+            </p>
+            <Link
+              to={`/app/booking-request?purchaseId=${purchaseId || ''}&planId=${payment?.planId || ''}`}
+              className="btn btn-primary"
+              style={{ background: '#7c3aed', borderColor: '#7c3aed' }}
+            >
+              <CalendarPlus size={18} /> Agendar Agora
+            </Link>
+          </div>
+        )}
 
         <div className="action-buttons">
-          <Link to="/" className="btn btn-primary btn-lg"><ArrowRight size={20} /> Voltar ao Início</Link>
+          {user ? (
+            <Link to={isPrivatePlan ? '/app' : '/app/plan'} className="btn btn-primary btn-lg">
+              <ArrowRight size={20} /> {isPrivatePlan ? 'Ir para o Dashboard' : 'Ver o meu plano'}
+            </Link>
+          ) : (
+            <Link to="/" className="btn btn-primary btn-lg"><ArrowRight size={20} /> Voltar ao Início</Link>
+          )}
           <button className="btn btn-outline btn-lg" onClick={() => window.print()}><Download size={20} /> Imprimir</button>
         </div>
 

@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { Menu, X, User, LogIn } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-export function Navbar() {
+export function Navbar({ logoUrl, siteName, tagline }: { logoUrl?: string; siteName?: string; tagline?: string }) {
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const location = useLocation();
@@ -30,8 +30,14 @@ export function Navbar() {
     <nav className={`navbar ${scrolled ? 'scrolled' : ''}`}>
       <div className="nav-container">
         <Link to="/" className="nav-logo" onClick={() => setMenuOpen(false)}>
-          <span className="logo-joy">JOY</span>
-          <span className="logo-sub">Joaquim Oliveira Yoga</span>
+          {logoUrl ? (
+            <img src={logoUrl} alt="Logo" style={{ height: 64, maxWidth: 180, objectFit: 'contain', borderRadius: 6 }} />
+          ) : (
+            <>
+              <span className="logo-joy">{siteName || 'JOY'}</span>
+              <span className="logo-sub">{tagline || 'Joaquim Oliveira Yoga'}</span>
+            </>
+          )}
         </Link>
 
         <button className="nav-toggle" onClick={() => setMenuOpen(!menuOpen)}>
@@ -40,8 +46,9 @@ export function Navbar() {
 
         <div className={`nav-links ${menuOpen ? 'open' : ''}`}>
           <button onClick={() => scrollToSection('sobre')}>Sobre</button>
-          <button onClick={() => scrollToSection('vinyasa')}>Vinyasa</button>
-          <button onClick={() => scrollToSection('servicos')}>Aulas</button>
+          <button onClick={() => scrollToSection('vinyasa')}>Estilos</button>
+          <button onClick={() => scrollToSection('horarios')}>Horários</button>
+          <button onClick={() => scrollToSection('servicos')}>Planos</button>
           <button onClick={() => scrollToSection('testemunhos')}>Testemunhos</button>
           <button onClick={() => scrollToSection('contacto')}>Contacto</button>
           {user ? (

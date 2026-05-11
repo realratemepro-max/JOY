@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Lock, Mail, ArrowLeft, Loader } from 'lucide-react';
 
 export function Login() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const next = searchParams.get('next');
+  const registerLink = next ? `/register?next=${encodeURIComponent(next)}` : '/register';
   const { login, resetPassword, error, clearError } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -44,8 +47,8 @@ export function Login() {
 
         <div className="login-header">
           <span className="login-logo">JOY</span>
-          <h1>Backoffice</h1>
-          <p>Acede ao painel de gestão</p>
+          <h1>Entrar</h1>
+          <p>Acede à tua área pessoal</p>
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -91,7 +94,7 @@ export function Login() {
           </button>
 
           <p className="register-link">
-            Não tens conta? <Link to="/register">Regista-te aqui</Link>
+            Não tens conta? <Link to={registerLink}>Regista-te aqui</Link>
           </p>
         </form>
       </div>

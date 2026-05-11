@@ -8,9 +8,9 @@ import {
   sendPasswordResetEmail,
   updateProfile,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../services/firebase';
-import { User, UserRole } from '../types';
+import { User, UserRole, Professor, ProfessorPermissions, DEFAULT_PROFESSOR_PERMISSIONS } from '../types';
 
 interface AuthContextType {
   user: FirebaseUser | null;
@@ -19,13 +19,16 @@ interface AuthContextType {
   loading: boolean;
   error: string | null;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name: string, phone?: string) => Promise<void>;
+  register: (email: string, password: string, name: string, phone?: string, dateOfBirth?: string) => Promise<void>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   clearError: () => void;
   refreshUser: () => Promise<void>;
   isAdmin: boolean;
   isClient: boolean;
+  isProfessor: boolean;
+  professorData: Professor | null;
+  professorPermissions: ProfessorPermissions;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -42,6 +45,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [appUser, setAppUser] = useState<User | null>(null);
   const [userRole, setUserRole] = useState<UserRole | null>(null);
+  const [professorData, setProfessorData] = useState<Professor | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -63,7 +67,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Load user document
+      // Check if this user is linked as a professor
+      const profSnap = await getDocs(query(collection(db, 'professors'), where('linkedUserId', '==', firebaseUser.uid)));
+      if (!profSnap.empty) {
+        const profDoc = profSnap.docs[0];
+        const profData = { id: profDoc.id, ...profDoc.data(), createdAt: profDoc.data().createdAt?.toDate(), updatedAt: profDoc.data().updatedAt?.toDate() } as Professor;
+        setProfessorData(profData);
+        setUserRole('professor');
+        setAppUser({
+          id: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          name: profData.name,
+          role: 'professor',
+          professorId: profDoc.id,
+          status: 'active',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+        return;
+      }
+
+      // Load user document (client)
       const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
       if (userDoc.exists()) {
         const data = userDoc.data();
@@ -88,10 +112,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
         setAppUser(loadedUser);
         setUserRole(loadedUser.role);
+        setProfessorData(null);
       } else {
-        // No user doc - shouldn't happen for registered clients
         setUserRole('client');
         setAppUser(null);
+        setProfessorData(null);
       }
     } catch (err) {
       console.error('Error loading user data:', err);
@@ -107,6 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         setUserRole(null);
         setAppUser(null);
+        setProfessorData(null);
       }
       setLoading(false);
     });
@@ -123,7 +149,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const register = async (email: string, password: string, name: string, phone?: string) => {
+  const register = async (email: string, password: string, name: string, phone?: string, dateOfBirth?: string) => {
     try {
       setError(null);
       const { user: newUser } = await createUserWithEmailAndPassword(auth, email, password);
@@ -135,6 +161,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         name,
         role: 'client',
         phone: phone || undefined,
+        dateOfBirth: dateOfBirth || undefined,
         status: 'lead',
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -186,6 +213,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshUser,
     isAdmin: userRole === 'admin',
     isClient: userRole === 'client',
+    isProfessor: userRole === 'professor',
+    professorData,
+    professorPermissions: professorData?.permissions ?? DEFAULT_PROFESSOR_PERMISSIONS,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

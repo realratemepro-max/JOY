@@ -16,6 +16,7 @@ export function ClientProfile() {
   const [goals, setGoals] = useState(appUser?.goals || '');
   const [injuries, setInjuries] = useState(appUser?.injuries || '');
   const [experience, setExperience] = useState(appUser?.experience || '');
+  const [chatVisible, setChatVisible] = useState(!!(appUser as any)?.chatVisible);
 
   const handleSave = async () => {
     if (!user) return;
@@ -29,6 +30,7 @@ export function ClientProfile() {
         goals: goals || null,
         injuries: injuries || null,
         experience: experience || null,
+        chatVisible,
         updatedAt: new Date(),
       });
       await refreshUser();
@@ -62,8 +64,12 @@ export function ClientProfile() {
               <input className="input" type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+351 912 345 678" />
             </div>
             <div className="form-group">
-              <label className="label">Data de Nascimento</label>
-              <input className="input" type="date" value={dateOfBirth} onChange={e => setDateOfBirth(e.target.value)} />
+              <label className="label">
+                Data de Nascimento
+                {!dateOfBirth && <span style={{ color: 'var(--accent)', fontSize: '0.8125rem', marginLeft: '0.375rem', fontWeight: 400 }}>— obrigatória</span>}
+              </label>
+              <input className="input" type="date" value={dateOfBirth} onChange={e => setDateOfBirth(e.target.value)} style={!dateOfBirth ? { borderColor: 'var(--accent)' } : {}} />
+              {!dateOfBirth && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem', display: 'block' }}>Usada para te oferecer uma surpresa no aniversário 🎂</span>}
             </div>
             <div className="form-group">
               <label className="label">Contacto de Emergência</label>
@@ -91,6 +97,25 @@ export function ClientProfile() {
             <label className="label">Lesões ou Condições Físicas</label>
             <textarea className="input textarea" rows={3} value={injuries} onChange={e => setInjuries(e.target.value)} placeholder="Lesões, limitações ou condições que o instrutor deve saber (ex: hérnia discal, gravidez, cirurgia recente...)" />
           </div>
+        </div>
+
+        <div className="form-section">
+          <h3>Privacidade no Chat</h3>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem', cursor: 'pointer', padding: '0.75rem 0' }}>
+            <input
+              type="checkbox"
+              checked={chatVisible}
+              onChange={e => setChatVisible(e.target.checked)}
+              style={{ width: 18, height: 18, marginTop: '2px', cursor: 'pointer', accentColor: 'var(--primary)' }}
+            />
+            <span style={{ fontSize: '0.9375rem' }}>
+              <strong>Visível para outros alunos</strong>
+              <br />
+              <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
+                Quando ativado, outros alunos da comunidade JOY podem ver o teu nome e iniciar uma conversa privada contigo. Por defeito está desativado — só admin e professores te conseguem contactar diretamente.
+              </span>
+            </span>
+          </label>
         </div>
 
         <button className="btn btn-primary btn-lg" onClick={handleSave} disabled={saving} style={{ marginTop: '1rem' }}>

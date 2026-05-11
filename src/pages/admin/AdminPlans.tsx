@@ -7,7 +7,10 @@ import { Plus, Edit2, Trash2, Save, X, Loader, MapPin, Check } from 'lucide-reac
 const emptyPlan = {
   name: '', description: '', longDescription: '', locationId: '', locationName: '',
   billingType: 'subscription' as 'subscription' | 'dropin',
-  sessionsPerWeek: 1, priceMonthly: 0, pricePerSession: 0,
+  classType: 'group' as 'group' | 'private' | 'both',
+  isHybrid: false,
+  isContentPlan: false,
+  sessionsTotal: 4, validityDays: 30, priceMonthly: 0, pricePerSession: 0,
   features: [] as string[], isPopular: false, isActive: true, order: 0,
 };
 
@@ -71,10 +74,14 @@ export function AdminPlans() {
         locationId: editData.locationId,
         locationName: editData.locationName,
         billingType: editData.billingType,
-        sessionsPerWeek: editData.billingType === 'subscription' ? Number(editData.sessionsPerWeek) : null,
+        sessionsTotal: editData.billingType === 'subscription' ? Number(editData.sessionsTotal) : null,
+        classType: editData.classType || 'group',
+        validityDays: Number(editData.validityDays) || 30,
         priceMonthly: editData.billingType === 'subscription' ? Number(editData.priceMonthly) : null,
         pricePerSession: editData.billingType === 'dropin' ? Number(editData.pricePerSession) : null,
         features: editData.features || [],
+        isHybrid: editData.isHybrid || false,
+        isContentPlan: editData.isContentPlan || false,
         isPopular: editData.isPopular || false,
         isActive: editData.isActive,
         order: Number(editData.order),
@@ -144,39 +151,78 @@ export function AdminPlans() {
             <textarea className="input textarea" rows={2} value={editData.description} onChange={e => setEditData({ ...editData, description: e.target.value })} placeholder="Ideal para quem quer começar uma prática regular..." />
           </div>
 
-          <div className="form-group">
-            <label className="label">Tipo de Plano</label>
-            <div style={{ display: 'flex', gap: '0.75rem' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', cursor: 'pointer', padding: '0.5rem 1rem', border: `2px solid ${editData.billingType === 'subscription' ? 'var(--primary)' : 'var(--sand)'}`, borderRadius: 'var(--radius-lg)', background: editData.billingType === 'subscription' ? 'rgba(124,154,114,0.08)' : 'white' }}>
-                <input type="radio" name="billingType" value="subscription" checked={editData.billingType === 'subscription'} onChange={() => setEditData({ ...editData, billingType: 'subscription' })} />
-                <strong>Subscrição Mensal</strong>
+          <div className="edit-grid">
+            <div className="form-group">
+              <label className="label">Tipo de Plano</label>
+              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', cursor: 'pointer', padding: '0.5rem 1rem', border: `2px solid ${editData.billingType === 'subscription' ? 'var(--primary)' : 'var(--sand)'}`, borderRadius: 'var(--radius-lg)', background: editData.billingType === 'subscription' ? 'rgba(124,154,114,0.08)' : 'white' }}>
+                  <input type="radio" name="billingType" value="subscription" checked={editData.billingType === 'subscription'} onChange={() => setEditData({ ...editData, billingType: 'subscription' })} />
+                  <strong>Pack de Aulas</strong>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', cursor: 'pointer', padding: '0.5rem 1rem', border: `2px solid ${editData.billingType === 'dropin' ? 'var(--accent)' : 'var(--sand)'}`, borderRadius: 'var(--radius-lg)', background: editData.billingType === 'dropin' ? 'rgba(193,127,89,0.08)' : 'white' }}>
+                  <input type="radio" name="billingType" value="dropin" checked={editData.billingType === 'dropin'} onChange={() => setEditData({ ...editData, billingType: 'dropin' })} />
+                  <strong>Aula Avulsa</strong>
+                </label>
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="label">Modalidade</label>
+              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                {[
+                  { value: 'group', label: 'Grupo', color: 'var(--primary)', bg: 'rgba(124,154,114,0.08)' },
+                  { value: 'private', label: 'Privada', color: '#8b5cf6', bg: 'rgba(139,92,246,0.08)' },
+                  { value: 'both', label: 'Grupo + Privada', color: '#0891b2', bg: 'rgba(8,145,178,0.08)' },
+                ].map(opt => (
+                  <label key={opt.value} style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', cursor: 'pointer', padding: '0.5rem 1rem', border: `2px solid ${editData.classType === opt.value ? opt.color : 'var(--sand)'}`, borderRadius: 'var(--radius-lg)', background: editData.classType === opt.value ? opt.bg : 'white' }}>
+                    <input type="radio" name="classType" value={opt.value} checked={editData.classType === opt.value} onChange={() => setEditData({ ...editData, classType: opt.value })} />
+                    <strong>{opt.label}</strong>
+                  </label>
+                ))}
+              </div>
+              {editData.classType === 'private' && <p style={{ fontSize: '0.75rem', color: '#8b5cf6', margin: '0.375rem 0 0' }}>Após compra, cliente agenda a data com o estúdio.</p>}
+              {editData.classType === 'both' && <p style={{ fontSize: '0.75rem', color: '#0891b2', margin: '0.375rem 0 0' }}>Plano válido para aulas de grupo e sessões privadas.</p>}
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.75rem', cursor: 'pointer', padding: '0.5rem 1rem', border: `2px solid ${editData.isHybrid ? '#1d4ed8' : 'var(--sand)'}`, borderRadius: 'var(--radius-lg)', background: editData.isHybrid ? 'rgba(29,78,216,0.08)' : 'white', width: 'fit-content' }}>
+                <input type="checkbox" checked={!!editData.isHybrid} onChange={e => setEditData({ ...editData, isHybrid: e.target.checked })} />
+                <strong style={{ color: editData.isHybrid ? '#1d4ed8' : 'inherit' }}>Inclui Online (Híbrida)</strong>
               </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', cursor: 'pointer', padding: '0.5rem 1rem', border: `2px solid ${editData.billingType === 'dropin' ? 'var(--accent)' : 'var(--sand)'}`, borderRadius: 'var(--radius-lg)', background: editData.billingType === 'dropin' ? 'rgba(193,127,89,0.08)' : 'white' }}>
-                <input type="radio" name="billingType" value="dropin" checked={editData.billingType === 'dropin'} onChange={() => setEditData({ ...editData, billingType: 'dropin' })} />
-                <strong>Aula Avulsa</strong>
+              {editData.isHybrid && <p style={{ fontSize: '0.75rem', color: '#1d4ed8', margin: '0.375rem 0 0' }}>Plano inclui aulas presenciais e online via Zoom.</p>}
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.75rem', cursor: 'pointer', padding: '0.5rem 1rem', border: `2px solid ${editData.isContentPlan ? '#7c3aed' : 'var(--sand)'}`, borderRadius: 'var(--radius-lg)', background: editData.isContentPlan ? 'rgba(124,58,237,0.08)' : 'white', width: 'fit-content' }}>
+                <input type="checkbox" checked={!!editData.isContentPlan} onChange={e => setEditData({ ...editData, isContentPlan: e.target.checked })} />
+                <strong style={{ color: editData.isContentPlan ? '#7c3aed' : 'inherit' }}>Add-on Biblioteca Digital</strong>
               </label>
+              {editData.isContentPlan && <p style={{ fontSize: '0.75rem', color: '#7c3aed', margin: '0.375rem 0 0' }}>Dá acesso à Biblioteca Digital (aulas gravadas, meditações). Não inclui aulas presenciais.</p>}
             </div>
           </div>
 
           {editData.billingType === 'subscription' ? (
             <div className="edit-grid">
               <div className="form-group">
-                <label className="label">Sessões por Semana</label>
-                <select className="input" value={editData.sessionsPerWeek} onChange={e => setEditData({ ...editData, sessionsPerWeek: e.target.value })}>
-                  {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n}x por semana</option>)}
+                <label className="label">Número de Sessões</label>
+                <select className="input" value={editData.sessionsTotal} onChange={e => setEditData({ ...editData, sessionsTotal: e.target.value })}>
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 16, 20].map(n => <option key={n} value={n}>{n} aula{n !== 1 ? 's' : ''}</option>)}
                 </select>
               </div>
               <div className="form-group">
-                <label className="label">Preço Mensal (€)</label>
-                <input className="input" type="number" step="0.01" value={editData.priceMonthly} onChange={e => setEditData({ ...editData, priceMonthly: e.target.value })} />
+                <label className="label">Preço (€)</label>
+                <input className="input" type="number" min="0" step="0.01" value={editData.priceMonthly} onChange={e => setEditData({ ...editData, priceMonthly: e.target.value })} />
               </div>
             </div>
           ) : (
             <div className="form-group">
               <label className="label">Preço por Sessão (€)</label>
-              <input className="input" type="number" step="0.01" value={editData.pricePerSession || ''} onChange={e => setEditData({ ...editData, pricePerSession: e.target.value })} style={{ width: 150 }} />
+              <input className="input" type="number" min="0" step="0.01" value={editData.pricePerSession || ''} onChange={e => setEditData({ ...editData, pricePerSession: e.target.value })} style={{ width: 150 }} />
             </div>
           )}
+
+          <div className="form-group">
+            <label className="label">Validade (dias após compra)</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <select className="input" style={{ width: 'auto' }} value={editData.validityDays || 30} onChange={e => setEditData({ ...editData, validityDays: Number(e.target.value) })}>
+                {[7, 15, 30, 45, 60, 90, 120, 180, 365].map(d => <option key={d} value={d}>{d} dias{d === 30 ? ' (1 mês)' : d === 90 ? ' (3 meses)' : d === 180 ? ' (6 meses)' : d === 365 ? ' (1 ano)' : ''}</option>)}
+              </select>
+              <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>desde a data de compra</span>
+            </div>
+          </div>
 
           {/* Features */}
           <div className="form-group">
@@ -245,16 +291,21 @@ export function AdminPlans() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                   <strong>{plan.name}</strong>
                   {plan.isPopular && <span className="badge badge-primary">Popular</span>}
+                  {(plan as any).classType === 'private' && <span className="badge" style={{ background: 'rgba(139,92,246,0.12)', color: '#6d28d9' }}>Privada</span>}
+                  {(plan as any).classType === 'both' && <span className="badge" style={{ background: 'rgba(8,145,178,0.12)', color: '#0e7490' }}>Grupo + Privada</span>}
+                  {(plan as any).isHybrid && <span className="badge" style={{ background: 'rgba(29,78,216,0.1)', color: '#1d4ed8' }}>Híbrida</span>}
+                  {(plan as any).isContentPlan && <span className="badge" style={{ background: 'rgba(124,58,237,0.1)', color: '#7c3aed' }}>Biblioteca</span>}
                   {!plan.isActive && <span className="badge badge-warning">Inativo</span>}
                 </div>
                 <div style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', display: 'flex', gap: '1rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
                   <span><MapPin size={12} style={{ display: 'inline', verticalAlign: 'middle' }} /> {plan.locationName}</span>
-                  <span>{plan.billingType === 'dropin' ? 'Aula Avulsa' : `${plan.sessionsPerWeek || 0}x/semana`}</span>
+                  <span>{plan.billingType === 'dropin' ? 'Aula Avulsa' : `${plan.sessionsTotal || 0} aulas`}</span>
+                  {(plan as any).validityDays && <span>· {(plan as any).validityDays} dias</span>}
                 </div>
               </div>
               <div style={{ textAlign: 'right', minWidth: 100 }}>
                 <div style={{ fontWeight: 700, fontSize: '1.125rem' }}>{(plan.billingType === 'dropin' ? (plan.pricePerSession || 0) : (plan.priceMonthly || 0)).toFixed(0)}€</div>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{plan.billingType === 'dropin' ? '/aula' : '/mês'}</span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{plan.billingType === 'dropin' ? '/aula' : `/${(plan as any).validityDays || 30}d`}</span>
               </div>
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <button className="btn btn-sm btn-secondary" onClick={() => startEdit(plan)} disabled={!!editing}><Edit2 size={14} /></button>

@@ -1,6 +1,7 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from './firebase';
-import { SiteConfig } from '../types';
+import { SiteConfig, PracticeSection } from '../types';
+import { DEFAULT_LOYALTY } from './loyaltyPresets';
 
 export const defaultSiteConfig: SiteConfig = {
   siteName: 'JOY - Joaquim Oliveira Yoga',
@@ -9,7 +10,7 @@ export const defaultSiteConfig: SiteConfig = {
   heroTitle: 'Transforma a tua vida com Vinyasa Yoga',
   heroSubtitle: 'Aulas particulares personalizadas para o teu corpo, mente e espírito. Descobre o poder transformador do yoga com acompanhamento individual.',
   heroCtaText: 'Reservar Aula Particular',
-  heroCtaLink: '#servicos',
+  heroCtaLink: '#horarios',
   heroSecondaryText: 'Saber Mais',
   aboutLabel: 'Sobre Mim',
   aboutTitle: 'Sobre Joaquim Oliveira',
@@ -33,9 +34,14 @@ export const defaultSiteConfig: SiteConfig = {
     'Alivia dores crónicas e tensões musculares',
     'Conecta corpo, mente e respiração numa prática fluida'
   ],
+  practices: [],
   servicesLabel: 'Aulas Particulares',
   servicesTitle: 'Escolhe o Teu Plano',
-  servicesSubtitle: 'Cada aula é totalmente personalizada e adaptada ao teu nível, objetivos e necessidades.',
+  servicesSubtitle: 'Compra um pacote de aulas sem compromisso mensal. Sem fidelização.',
+  servicesDropinTitle: 'Aulas Avulsas',
+  servicesDropinSubtitle: 'Paga apenas o que usas, sem compromisso.',
+  servicesPlansTitle: 'Pacotes de Aulas',
+  servicesPlansSubtitle: 'Poupa ao comprar um conjunto de aulas. Sem mensalidade, sem fidelização.',
   testimonialsLabel: 'Testemunhos',
   testimonialsTitle: 'O que dizem os meus alunos',
   contactLabel: 'Contacto',
@@ -52,6 +58,14 @@ export const defaultSiteConfig: SiteConfig = {
   youtube: '',
   location: 'Lisboa, Portugal',
   mapUrl: '',
+  paymentSuccessTitle: 'Pagamento Confirmado!',
+  paymentSuccessSubtitle: 'O teu pagamento foi processado com sucesso.',
+  paymentSuccessStepsTitle: 'Próximos Passos',
+  paymentSuccessSteps: [
+    'O Joaquim entrará em contacto para agendar a tua aula',
+    'Receberás um email de confirmação',
+    'Prepara roupa confortável para a prática',
+  ],
   footerText: '2024 JOY - Joaquim Oliveira Yoga. Todos os direitos reservados.',
   metaTitle: 'JOY - Joaquim Oliveira Yoga | Aulas Particulares de Vinyasa Yoga',
   metaDescription: 'Aulas particulares de Vinyasa Yoga em Lisboa. Transforme a sua vida com sessões personalizadas. Reserva a tua primeira aula.',
@@ -62,7 +76,9 @@ export const defaultSiteConfig: SiteConfig = {
   cancelLimitHoursBefore: 2,
   cancelRefundPolicy: 'credit',
   lateCancelPenalty: 'no_refund',
-  creditValidityDays: 30,
+  dropinValidityDays: 15,
+  cancellationGracePeriodDays: 7,
+  loyalty: DEFAULT_LOYALTY,
   paymentProvider: 'eupago',
   paymentApiKey: '',
   paymentApiBaseUrl: 'https://clientes.eupago.pt',

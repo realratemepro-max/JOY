@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, orderBy, where, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, query, orderBy, where, Timestamp, increment, onSnapshot, runTransaction } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { Session, SessionStudent, Plan, Location, Professor, CancelReason, Credit } from '../../types';
 import {
   Plus, Save, X, Loader, Calendar, MapPin, Clock, Check,
-  XCircle, Minus, ChevronLeft, ChevronRight, Users, Edit2, Trash2, AlertTriangle, UserCheck
+  XCircle, Minus, ChevronLeft, ChevronRight, Users, Edit2, Trash2, AlertTriangle, UserCheck, Video, Link,
+  UserPlus, Banknote, Search,
 } from 'lucide-react';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../../services/firebase';
 
 const DAY_NAMES = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const DAY_NAMES_FULL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
@@ -39,9 +42,14 @@ export function AdminSessions() {
   const [saving, setSaving] = useState(false);
   const [viewMode, setViewMode] = useState<'week' | 'month'>('month');
   const [expandedExternalLoc, setExpandedExternalLoc] = useState<string | null>(null);
+  const [gracePeriodDays, setGracePeriodDays] = useState(7);
 
   // Delete modal
   const [deleteModal, setDeleteModal] = useState<{ sessionId: string } | null>(null);
+
+  // Edit session
+  const [editSessionData, setEditSessionData] = useState<any>(null);
+  const [saveScopeModal, setSaveScopeModal] = useState<{ data: any } | null>(null);
 
   // Cancel/Substitute modal
   const [cancelModal, setCancelModal] = useState<{
@@ -70,9 +78,22 @@ export function AdminSessions() {
     startTime: '09:00',
     duration: 60,
     mode: 'single' as 'single' | 'recurring',
-    recurrenceEndDate: '', // for the base day recurrence
+    recurrenceEndDate: '',
     extraSlots: [] as RecurringSlot[],
+    isHybrid: false,
+    onlineCapacity: 10,
   });
+  const [generatingZoom, setGeneratingZoom] = useState<string | null>(null);
+
+  // Add student modal
+  const [addStudentModal, setAddStudentModal] = useState<{ sessionId: string } | null>(null);
+  const [studentSearch, setStudentSearch] = useState('');
+  const [allUsers, setAllUsers] = useState<{ id: string; name: string; email: string }[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+
+  // Cash payment modal
+  const [cashModal, setCashModal] = useState<{ sessionId: string; studentIndex: number; studentName: string } | null>(null);
+  const [cashAmount, setCashAmount] = useState('');
 
   const addExtraSlot = () => setNewSession(prev => ({
     ...prev,
@@ -107,29 +128,35 @@ export function AdminSessions() {
       const weekEnd = new Date(weekDates[6]);
       weekEnd.setHours(23, 59, 59);
 
-      const [sessionsSnap, plansSnap, locsSnap, profsSnap] = await Promise.all([
-        getDocs(query(collection(db, 'sessions'), orderBy('date', 'asc'))),
+      const [plansSnap, locsSnap, profsSnap, configSnap] = await Promise.all([
         getDocs(query(collection(db, 'plans'), orderBy('order'))),
         getDocs(query(collection(db, 'locations'), orderBy('order'))),
         getDocs(query(collection(db, 'professors'), orderBy('name'))),
+        getDoc(doc(db, 'siteConfig', 'main')),
       ]);
 
-      // For month view, load the whole month; for week view, just the week
-      const monthStart = new Date(weekBase.getFullYear(), weekBase.getMonth(), 1);
-      const monthEnd = new Date(weekBase.getFullYear(), weekBase.getMonth() + 1, 0, 23, 59, 59);
+      if (configSnap.exists()) {
+        setGracePeriodDays(configSnap.data().cancellationGracePeriodDays ?? 7);
+      }
 
-      const allSessions = sessionsSnap.docs.map(d => {
-        const data = d.data();
-        return { id: d.id, ...data, date: data.date?.toDate(), createdAt: data.createdAt?.toDate(), updatedAt: data.updatedAt?.toDate() } as Session;
-      });
-
-      setSessions(allSessions);
       setPlans(plansSnap.docs.map(d => ({ id: d.id, ...d.data() } as Plan)));
       setLocations(locsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Location)));
       setProfessors(profsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Professor)));
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
   };
+
+  // Live snapshot for sessions — admin sees professor check-ins / additions in real-time
+  useEffect(() => {
+    const unsub = onSnapshot(query(collection(db, 'sessions'), orderBy('date', 'asc')), snap => {
+      const all = snap.docs.map(d => {
+        const data = d.data();
+        return { id: d.id, ...data, date: data.date?.toDate(), createdAt: data.createdAt?.toDate(), updatedAt: data.updatedAt?.toDate() } as Session;
+      });
+      setSessions(all);
+    }, err => console.error('admin sessions snapshot error', err));
+    return () => unsub();
+  }, []);
 
   const weekDates = getWeekDates(weekBase);
   const today = new Date();
@@ -165,11 +192,18 @@ export function AdminSessions() {
   const handleAttendance = async (sessionId: string, studentIndex: number, status: 'attended' | 'absent' | 'cancelled') => {
     const session = sessions.find(s => s.id === sessionId);
     if (!session) return;
-    const students = [...session.enrolledStudents];
-    students[studentIndex] = { ...students[studentIndex], status };
+    const targetUserId = session.enrolledStudents[studentIndex]?.userId;
+    if (!targetUserId) return;
     try {
-      await updateDoc(doc(db, 'sessions', sessionId), { enrolledStudents: students, updatedAt: new Date() });
-      setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, enrolledStudents: students } : s));
+      const ref = doc(db, 'sessions', sessionId);
+      // Atomic — read fresh array, update by userId (not by stale index), write back
+      await runTransaction(db, async tx => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new Error('Sessão não encontrada');
+        const fresh = (snap.data().enrolledStudents || []) as SessionStudent[];
+        const updated = fresh.map(s => s.userId === targetUserId ? { ...s, status } : s);
+        tx.update(ref, { enrolledStudents: updated, updatedAt: new Date() });
+      });
     } catch (err) { console.error(err); }
   };
 
@@ -208,44 +242,9 @@ export function AdminSessions() {
       const now = new Date();
 
       if (action === 'cancel') {
-        // Cancel: update session + generate credits for enrolled students
-        await updateDoc(doc(db, 'sessions', sessionId), {
-          status: 'cancelled',
-          cancelReason: reason,
-          cancelReasonText: reason === 'other' ? reasonText : null,
-          cancelledBy: 'admin',
-          cancelledAt: Timestamp.fromDate(now),
-          updatedAt: Timestamp.fromDate(now),
-        });
-
-        // Generate credits for each enrolled student
-        for (const student of session.enrolledStudents.filter(s => s.status === 'enrolled' || s.status === 'attended')) {
-          const creditType = student.subscriptionId ? 'session_return' : 'dropin_credit';
-          const expiresAt = new Date(now);
-          expiresAt.setMonth(expiresAt.getMonth() + 3); // 3 months to use
-
-          if (student.subscriptionId) {
-            // Plano mensal: devolver sessão ao contador
-            try {
-              await updateDoc(doc(db, 'subscriptions', student.subscriptionId), {
-                sessionsUsedThisPeriod: Math.max(0, -1), // will use increment in real scenario
-              });
-            } catch (e) { console.error('Error returning session to subscription', e); }
-          }
-
-          const creditRef = doc(collection(db, 'credits'));
-          await setDoc(creditRef, {
-            userId: student.userId,
-            userName: student.userName,
-            type: creditType,
-            amount: 1,
-            reason: `Aula cancelada: ${CANCEL_REASONS[reason]}${reason === 'other' && reasonText ? ` - ${reasonText}` : ''}`,
-            sessionId,
-            sessionDate: session.date ? Timestamp.fromDate(session.date) : null,
-            expiresAt: Timestamp.fromDate(expiresAt),
-            createdAt: Timestamp.fromDate(now),
-          });
-        }
+        // Use Cloud Function to handle cancel + refund + endDate extension uniformly
+        const fn = httpsCallable(functions, 'cancelSessionWithRefund');
+        await fn({ sessionId, reason, reasonText: reason === 'other' ? reasonText : '' });
 
         setSessions(prev => prev.map(s => s.id === sessionId ? {
           ...s, status: 'cancelled' as const, cancelReason: reason, cancelledAt: now,
@@ -381,6 +380,9 @@ export function AdminSessions() {
         enrolledStudents: [],
         maxCapacity: loc?.capacity || 10,
         classType: newSession.classType,
+        isHybrid: newSession.isHybrid,
+        onlineCapacity: newSession.isHybrid ? newSession.onlineCapacity : 0,
+        onlineEnrolled: [],
         status: 'scheduled',
         notes: newSession.notes || '',
       };
@@ -406,7 +408,176 @@ export function AdminSessions() {
       }
 
       setShowNewForm(false);
-      setNewSession({ locationId: '', professorId: '', classType: 'group', name: '', notes: '', startTime: '09:00', duration: 60, mode: 'single', recurrenceEndDate: '', extraSlots: [] });
+      setNewSession({ locationId: '', professorId: '', classType: 'group', name: '', notes: '', startTime: '09:00', duration: 60, mode: 'single', recurrenceEndDate: '', extraSlots: [], isHybrid: false, onlineCapacity: 10 });
+      await loadData();
+    } catch (err) { console.error(err); }
+    finally { setSaving(false); }
+  };
+
+  const handleGenerateZoom = async (session: Session) => {
+    setGeneratingZoom(session.id);
+    try {
+      const startISO = session.date.toISOString().slice(0, 16);
+      const fn = httpsCallable(functions, 'createZoomMeeting');
+      const result: any = await fn({ sessionId: session.id, topic: session.name || `Aula ${session.date.toLocaleDateString('pt-PT')}`, startTime: startISO, durationMinutes: session.duration || 60 });
+      if (result.data?.success) {
+        setSessions(prev => prev.map(s => s.id === session.id ? { ...s, zoomLink: result.data.joinUrl, zoomMeetingId: result.data.meetingId } as any : s));
+      } else {
+        alert('Erro ao criar reunião Zoom');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Erro ao criar reunião Zoom');
+    } finally {
+      setGeneratingZoom(null);
+    }
+  };
+
+  const openAddStudentModal = async (sessionId: string) => {
+    setAddStudentModal({ sessionId });
+    setStudentSearch('');
+    if (allUsers.length === 0) {
+      setLoadingUsers(true);
+      try {
+        const snap = await getDocs(query(collection(db, 'users'), orderBy('name')));
+        setAllUsers(snap.docs.map(d => ({ id: d.id, name: d.data().name || d.data().email, email: d.data().email })));
+      } catch (err) { console.error(err); }
+      finally { setLoadingUsers(false); }
+    }
+  };
+
+  const handleAddStudent = async (sessionId: string, userId: string, userName: string) => {
+    try {
+      const ref = doc(db, 'sessions', sessionId);
+      await runTransaction(db, async tx => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new Error('Sessão não encontrada');
+        const fresh = (snap.data().enrolledStudents || []) as SessionStudent[];
+        if (fresh.some(s => s.userId === userId)) throw new Error('Este aluno já está inscrito nesta aula.');
+        const updated = [...fresh, { userId, userName, status: 'enrolled' as const }];
+        tx.update(ref, { enrolledStudents: updated, updatedAt: new Date() });
+      });
+    } catch (err: any) {
+      console.error(err);
+      alert(err?.message || 'Erro ao adicionar aluno');
+    }
+  };
+
+  const handleCashPayment = async () => {
+    if (!cashModal) return;
+    const { sessionId, studentIndex, studentName } = cashModal;
+    const session = sessions.find(s => s.id === sessionId);
+    if (!session) return;
+    const amount = parseFloat(cashAmount);
+    if (isNaN(amount) || amount <= 0) { alert('Insere um valor válido.'); return; }
+
+    const targetUserId = session.enrolledStudents[studentIndex]?.userId;
+    if (!targetUserId) return;
+
+    try {
+      // Create payment record first
+      const payRef = doc(collection(db, 'payments'));
+      await setDoc(payRef, {
+        userId: targetUserId,
+        userEmail: '',
+        amount,
+        method: 'Numerário',
+        status: 'Paid',
+        identifier: `CASH-${Date.now()}`,
+        type: 'single_class',
+        sessionId,
+        sessionDate: session.date,
+        sessionName: session.name || `${session.startTime} ${session.locationName}`,
+        paidAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      // Atomic enrolledStudents update
+      const sessionRef = doc(db, 'sessions', sessionId);
+      await runTransaction(db, async tx => {
+        const snap = await tx.get(sessionRef);
+        if (!snap.exists()) throw new Error('Sessão não encontrada');
+        const fresh = (snap.data().enrolledStudents || []) as SessionStudent[];
+        const updated = fresh.map(s => s.userId === targetUserId ? {
+          ...s,
+          status: 'attended' as const,
+          cashPayment: { amount, recordedBy: 'admin', recordedAt: new Date() },
+        } : s);
+        tx.update(sessionRef, { enrolledStudents: updated, updatedAt: new Date() });
+      });
+      setCashModal(null);
+      setCashAmount('');
+    } catch (err: any) {
+      console.error(err);
+      alert(err?.message || 'Erro ao registar pagamento');
+    }
+  };
+
+  const openEditSession = (session: Session) => {
+    setEditSessionData({
+      id: session.id,
+      name: session.name || '',
+      locationId: session.locationId,
+      professorId: session.professorId || '',
+      startTime: session.startTime,
+      duration: session.duration || 60,
+      maxCapacity: session.maxCapacity || 10,
+      classType: session.classType,
+      isHybrid: (session as any).isHybrid || false,
+      onlineCapacity: (session as any).onlineCapacity || 10,
+      notes: session.notes || '',
+      // for matching future sessions
+      _origStartTime: session.startTime,
+      _origDayOfWeek: session.dayOfWeek,
+      _origLocationId: session.locationId,
+      _origDate: session.date,
+    });
+  };
+
+  const handleSaveSession = async (scope: 'single' | 'future') => {
+    if (!editSessionData) return;
+    try {
+      setSaving(true);
+      const loc = locations.find(l => l.id === editSessionData.locationId);
+      const prof = professors.find(p => p.id === editSessionData.professorId);
+      const endTime = calcEndTime(editSessionData.startTime, editSessionData.duration);
+
+      const update: any = {
+        name: editSessionData.name,
+        locationId: editSessionData.locationId,
+        locationName: loc?.name || '',
+        professorId: editSessionData.professorId || null,
+        professorName: prof?.name || null,
+        startTime: editSessionData.startTime,
+        endTime,
+        duration: editSessionData.duration,
+        maxCapacity: editSessionData.maxCapacity,
+        classType: editSessionData.classType,
+        isHybrid: editSessionData.isHybrid,
+        onlineCapacity: editSessionData.isHybrid ? editSessionData.onlineCapacity : 0,
+        notes: editSessionData.notes,
+        updatedAt: Timestamp.fromDate(new Date()),
+      };
+
+      if (scope === 'single') {
+        await updateDoc(doc(db, 'sessions', editSessionData.id), update);
+      } else {
+        // Update this + all future sessions with same schedule
+        const futures = sessions.filter(s =>
+          (s.id === editSessionData.id ||
+            (s.date >= editSessionData._origDate &&
+             s.dayOfWeek === editSessionData._origDayOfWeek &&
+             s.startTime === editSessionData._origStartTime &&
+             s.locationId === editSessionData._origLocationId &&
+             s.status === 'scheduled'))
+        );
+        for (const s of futures) {
+          await updateDoc(doc(db, 'sessions', s.id), update);
+        }
+      }
+
+      setSaveScopeModal(null);
+      setEditSessionData(null);
       await loadData();
     } catch (err) { console.error(err); }
     finally { setSaving(false); }
@@ -656,10 +827,24 @@ export function AdminSessions() {
               <div className="form-section-title">Dados da Aula</div>
               <div className="form-row">
                 <input className="input" value={newSession.name} onChange={e => setNewSession({ ...newSession, name: e.target.value })} placeholder="Nome da aula (opcional)" style={{ flex: 1 }} />
-                <select className="input" value={newSession.classType} onChange={e => setNewSession({ ...newSession, classType: e.target.value as any })} style={{ width: 120 }}>
+                <select className="input" value={newSession.classType} onChange={e => setNewSession({ ...newSession, classType: e.target.value as any })} style={{ width: 150 }}>
                   <option value="group">Grupo</option>
                   <option value="private">Privada</option>
+                  <option value="both">Grupo+Privada</option>
                 </select>
+              </div>
+              {/* Hybrid toggle */}
+              <div className="form-row" style={{ alignItems: 'center', gap: '1rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9375rem' }}>
+                  <input type="checkbox" checked={newSession.isHybrid} onChange={e => setNewSession({ ...newSession, isHybrid: e.target.checked })} />
+                  <Video size={16} color="#5b8db8" /> Aula Híbrida (online + presencial)
+                </label>
+                {newSession.isHybrid && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <label className="label" style={{ margin: 0, whiteSpace: 'nowrap' }}>Vagas online:</label>
+                    <input type="number" className="input" value={newSession.onlineCapacity} onChange={e => setNewSession({ ...newSession, onlineCapacity: Number(e.target.value) })} style={{ width: 70 }} min={1} max={100} />
+                  </div>
+                )}
               </div>
               {/* Row 2: Location + Professor */}
               <div className="form-row">
@@ -772,7 +957,8 @@ export function AdminSessions() {
                             <UserCheck size={12} /> {session.replacementProfessorName}
                           </span>
                         )}
-                        {!isExternal && <span className={`badge ${session.classType === 'private' ? 'badge-primary' : 'badge-success'}`}>{session.classType === 'private' ? 'Privada' : 'Grupo'}</span>}
+                        {!isExternal && <span className={`badge ${session.classType === 'private' ? 'badge-primary' : session.classType === 'both' ? '' : 'badge-success'}`} style={session.classType === 'both' ? { background: '#cffafe', color: '#0e7490' } : {}}>{session.classType === 'private' ? 'Privada' : session.classType === 'both' ? 'Grupo+Privada' : 'Grupo'}</span>}
+                        {(session as any).isHybrid && <span className="badge" style={{ background: '#dbeafe', color: '#1d4ed8' }}><Video size={10} style={{ marginRight: 3 }} />Híbrida</span>}
                         {session.professorName && (
                           <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>{session.professorName}</span>
                         )}
@@ -785,6 +971,14 @@ export function AdminSessions() {
                       </div>
                     </div>
                     <div className="session-detail-actions">
+                      <button className="btn btn-sm btn-secondary" onClick={() => openEditSession(session)} title="Editar"><Edit2 size={14} /></button>
+                      {(session as any).isHybrid && (
+                        (session as any).zoomLink
+                          ? <a href={(session as any).zoomLink} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-secondary" title="Abrir Zoom"><Video size={14} /> Zoom</a>
+                          : <button className="btn btn-sm btn-secondary" onClick={() => handleGenerateZoom(session)} disabled={generatingZoom === session.id} title="Gerar link Zoom">
+                              {generatingZoom === session.id ? <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <><Video size={14} /> Gerar Zoom</>}
+                            </button>
+                      )}
                       {session.status === 'scheduled' && (
                         <>
                           <button className="btn btn-sm btn-primary" onClick={() => handleCompleteSession(session.id)} title="Marcar como concluída"><Check size={14} /> Concluir</button>
@@ -795,41 +989,149 @@ export function AdminSessions() {
                     </div>
                   </div>
 
-                  {/* Enrolled Students + Attendance */}
-                  {session.enrolledStudents.length > 0 ? (
-                    <div className="students-list">
-                      <div className="students-header">
-                        <span>Alunos ({session.enrolledStudents.length}/{session.maxCapacity})</span>
+                  {/* Inline Edit Form */}
+                  {editSessionData?.id === session.id && (
+                    <div style={{ padding: '1rem', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', margin: '0.75rem 0', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label className="label">Nome</label>
+                          <input className="input" value={editSessionData.name} onChange={e => setEditSessionData({ ...editSessionData, name: e.target.value })} placeholder="Nome da aula" />
+                        </div>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label className="label">Tipo</label>
+                          <select className="input" value={editSessionData.classType} onChange={e => setEditSessionData({ ...editSessionData, classType: e.target.value })}>
+                            <option value="group">Grupo</option>
+                            <option value="private">Privada</option>
+                            <option value="both">Grupo+Privada</option>
+                          </select>
+                        </div>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label className="label">Espaço</label>
+                          <select className="input" value={editSessionData.locationId} onChange={e => setEditSessionData({ ...editSessionData, locationId: e.target.value })}>
+                            {locations.filter(l => l.isActive).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                          </select>
+                        </div>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label className="label">Professor</label>
+                          <select className="input" value={editSessionData.professorId} onChange={e => setEditSessionData({ ...editSessionData, professorId: e.target.value })}>
+                            <option value="">—</option>
+                            {professors.filter(p => p.isActive).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                          </select>
+                        </div>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label className="label">Hora</label>
+                          <input type="time" className="input" value={editSessionData.startTime} onChange={e => setEditSessionData({ ...editSessionData, startTime: e.target.value })} />
+                        </div>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label className="label">Duração</label>
+                          <select className="input" value={editSessionData.duration} onChange={e => setEditSessionData({ ...editSessionData, duration: Number(e.target.value) })}>
+                            <option value={45}>45 min</option>
+                            <option value={60}>60 min</option>
+                            <option value={75}>75 min</option>
+                            <option value={90}>90 min</option>
+                            <option value={120}>120 min</option>
+                          </select>
+                        </div>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label className="label">Vagas Presenciais</label>
+                          <input type="number" className="input" value={editSessionData.maxCapacity} onChange={e => setEditSessionData({ ...editSessionData, maxCapacity: Number(e.target.value) })} min={1} />
+                        </div>
                       </div>
-                      {session.enrolledStudents.map((student, si) => (
-                        <div key={si} className="student-row">
-                          <div className="student-avatar">{student.userName.charAt(0).toUpperCase()}</div>
-                          <span className="student-name">{student.userName}</span>
-                          <div className="attendance-btns">
-                            <button
-                              className={`att-btn ${student.status === 'attended' ? 'active-success' : ''}`}
-                              onClick={() => handleAttendance(session.id, si, 'attended')}
-                              title="Presente"
-                            ><Check size={14} /></button>
-                            <button
-                              className={`att-btn ${student.status === 'absent' ? 'active-error' : ''}`}
-                              onClick={() => handleAttendance(session.id, si, 'absent')}
-                              title="Faltou"
-                            ><XCircle size={14} /></button>
-                            <button
-                              className={`att-btn ${student.status === 'cancelled' ? 'active-muted' : ''}`}
-                              onClick={() => handleAttendance(session.id, si, 'cancelled')}
-                              title="Cancelou"
-                            ><Minus size={14} /></button>
-                          </div>
-                          <span className="att-label" style={{ color: statusColor(student.status) }}>
-                            {student.status === 'attended' ? 'Presente' : student.status === 'absent' ? 'Faltou' : student.status === 'cancelled' ? 'Cancelou' : 'Inscrito'}
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.9375rem' }}>
+                        <input type="checkbox" checked={editSessionData.isHybrid} onChange={e => setEditSessionData({ ...editSessionData, isHybrid: e.target.checked })} />
+                        <Video size={15} color="#5b8db8" /> Aula Híbrida
+                        {editSessionData.isHybrid && (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginLeft: '1rem' }}>
+                            <span style={{ fontSize: '0.875rem' }}>Vagas online:</span>
+                            <input type="number" className="input" value={editSessionData.onlineCapacity} onChange={e => setEditSessionData({ ...editSessionData, onlineCapacity: Number(e.target.value) })} style={{ width: 70 }} min={1} />
                           </span>
+                        )}
+                      </label>
+                      <input className="input" value={editSessionData.notes} onChange={e => setEditSessionData({ ...editSessionData, notes: e.target.value })} placeholder="Notas (opcional)" />
+                      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                        <button className="btn btn-secondary btn-sm" onClick={() => setEditSessionData(null)}>Cancelar</button>
+                        <button className="btn btn-primary btn-sm" onClick={() => setSaveScopeModal({ data: editSessionData })} disabled={saving}><Save size={14} /> Guardar</button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Enrolled Students + Attendance */}
+                  <div className="students-list">
+                    <div className="students-header">
+                      <span>Alunos ({session.enrolledStudents.length}/{session.maxCapacity})</span>
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        {((session as any).waitlist || []).length > 0 && (
+                          <span style={{ fontSize: '0.75rem', background: '#fef3c7', color: '#d97706', padding: '0.125rem 0.5rem', borderRadius: 999, fontWeight: 600 }}>
+                            ⏳ {((session as any).waitlist || []).length} em espera
+                          </span>
+                        )}
+                        <button
+                          className="btn btn-sm btn-secondary"
+                          style={{ fontSize: '0.75rem', padding: '0.25rem 0.625rem' }}
+                          onClick={() => openAddStudentModal(session.id)}
+                          title="Adicionar aluno registado"
+                        >
+                          <UserPlus size={13} /> Adicionar Aluno
+                        </button>
+                      </div>
+                    </div>
+                    {session.enrolledStudents.length === 0 && (
+                      <div style={{ padding: '0.75rem 1rem', color: 'var(--text-muted)', fontSize: '0.875rem' }}>Sem alunos inscritos</div>
+                    )}
+                    {session.enrolledStudents.map((student, si) => (
+                      <div key={si} className="student-row">
+                        <div className="student-avatar">{student.userName.charAt(0).toUpperCase()}</div>
+                        <span className="student-name">{student.userName}</span>
+                        <div className="attendance-btns">
+                          <button
+                            className={`att-btn ${student.status === 'attended' ? 'active-success' : ''}`}
+                            onClick={() => handleAttendance(session.id, si, 'attended')}
+                            title="Presente"
+                          ><Check size={14} /></button>
+                          <button
+                            className={`att-btn ${student.status === 'absent' ? 'active-error' : ''}`}
+                            onClick={() => handleAttendance(session.id, si, 'absent')}
+                            title="Faltou"
+                          ><XCircle size={14} /></button>
+                          <button
+                            className={`att-btn ${student.status === 'cancelled' ? 'active-muted' : ''}`}
+                            onClick={() => handleAttendance(session.id, si, 'cancelled')}
+                            title="Cancelou"
+                          ><Minus size={14} /></button>
+                          {student.cashPayment ? (
+                            <span title={`Pago em mão: ${student.cashPayment.amount}€`} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', color: 'var(--success)', fontWeight: 600, padding: '0 0.375rem' }}>
+                              <Banknote size={13} /> {student.cashPayment.amount}€
+                            </span>
+                          ) : (
+                            <button
+                              className="att-btn"
+                              onClick={() => { setCashModal({ sessionId: session.id, studentIndex: si, studentName: student.userName }); setCashAmount(''); }}
+                              title="Registar pagamento em mão"
+                              style={{ color: 'var(--accent)' }}
+                            ><Banknote size={14} /></button>
+                          )}
+                        </div>
+                        <span className="att-label" style={{ color: statusColor(student.status) }}>
+                          {student.status === 'attended' ? 'Presente' : student.status === 'absent' ? 'Faltou' : student.status === 'cancelled' ? 'Cancelou' : 'Inscrito'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Waitlist */}
+                  {((session as any).waitlist || []).length > 0 && (
+                    <div className="students-list" style={{ marginTop: '0.5rem', borderTop: '1px dashed var(--sand)' }}>
+                      <div className="students-header" style={{ color: '#d97706' }}>
+                        <span>⏳ Lista de Espera ({((session as any).waitlist || []).length})</span>
+                      </div>
+                      {((session as any).waitlist || []).map((entry: any, wi: number) => (
+                        <div key={wi} className="student-row">
+                          <div className="student-avatar" style={{ background: '#fef3c7', color: '#d97706', fontSize: '0.75rem', fontWeight: 700 }}>#{entry.position || wi + 1}</div>
+                          <span className="student-name">{entry.userName}</span>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>{entry.joinedAt?.toDate ? entry.joinedAt.toDate().toLocaleDateString('pt-PT') : ''}</span>
                         </div>
                       ))}
                     </div>
-                  ) : (
-                    <div style={{ padding: '1rem', color: 'var(--text-muted)', fontSize: '0.875rem' }}>Sem alunos inscritos</div>
                   )}
 
                   {session.notes && <div style={{ padding: '0.75rem 1rem', background: 'var(--beige)', borderRadius: 'var(--radius-md)', fontSize: '0.875rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>{session.notes}</div>}
@@ -838,6 +1140,35 @@ export function AdminSessions() {
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Save Scope Modal */}
+      {saveScopeModal && (
+        <div className="modal-overlay" onClick={() => setSaveScopeModal(null)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+            <div className="modal-header">
+              <h3><Save size={18} /> Guardar Alterações</h3>
+              <button className="btn btn-sm btn-secondary" onClick={() => setSaveScopeModal(null)}><X size={14} /></button>
+            </div>
+            <p style={{ color: 'var(--text-secondary)', margin: '1rem 0' }}>
+              Esta aula faz parte de uma série recorrente. O que queres alterar?
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <button className="btn btn-secondary" style={{ justifyContent: 'flex-start', textAlign: 'left' }} onClick={() => handleSaveSession('single')} disabled={saving}>
+                <div>
+                  <strong>Apenas esta aula</strong>
+                  <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>As outras aulas da série não são afetadas.</div>
+                </div>
+              </button>
+              <button className="btn btn-primary" style={{ justifyContent: 'flex-start', textAlign: 'left' }} onClick={() => handleSaveSession('future')} disabled={saving}>
+                <div>
+                  <strong>Esta e todas as futuras</strong>
+                  <div style={{ fontSize: '0.8125rem', color: 'rgba(255,255,255,0.75)', marginTop: '0.125rem' }}>Atualiza esta aula e todas as seguintes no mesmo horário.</div>
+                </div>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -958,6 +1289,108 @@ export function AdminSessions() {
                 disabled={saving || (cancelModal.action === 'substitute' && !cancelModal.replacementProfessorId)}
               >
                 {saving ? <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> : cancelModal.action === 'cancel' ? 'Cancelar Aula' : 'Substituir Professor'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Student Modal */}
+      {addStudentModal && (() => {
+        const session = sessions.find(s => s.id === addStudentModal.sessionId);
+        const enrolledIds = new Set(session?.enrolledStudents.map(s => s.userId) || []);
+        const filtered = allUsers.filter(u =>
+          !enrolledIds.has(u.id) &&
+          (u.name.toLowerCase().includes(studentSearch.toLowerCase()) || u.email.toLowerCase().includes(studentSearch.toLowerCase()))
+        );
+        return (
+          <div className="modal-overlay" onClick={() => setAddStudentModal(null)}>
+            <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 460 }}>
+              <div className="modal-header">
+                <h3><UserPlus size={18} /> Adicionar Aluno</h3>
+                <button className="btn btn-sm btn-secondary" onClick={() => setAddStudentModal(null)}><X size={14} /></button>
+              </div>
+              <div className="modal-body">
+                <div style={{ position: 'relative', marginBottom: '0.75rem' }}>
+                  <Search size={15} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                  <input
+                    className="input"
+                    placeholder="Pesquisar por nome ou email..."
+                    value={studentSearch}
+                    onChange={e => setStudentSearch(e.target.value)}
+                    autoFocus
+                    style={{ paddingLeft: '2.25rem' }}
+                  />
+                </div>
+                {loadingUsers ? (
+                  <div style={{ textAlign: 'center', padding: '1rem' }}><div className="spinner" /></div>
+                ) : filtered.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '1rem', color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+                    {studentSearch ? 'Nenhum aluno encontrado' : 'Todos os alunos já estão inscritos'}
+                  </div>
+                ) : (
+                  <div style={{ maxHeight: 300, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+                    {filtered.slice(0, 20).map(u => (
+                      <button
+                        key={u.id}
+                        className="btn btn-secondary"
+                        style={{ justifyContent: 'flex-start', textAlign: 'left', padding: '0.625rem 0.875rem' }}
+                        onClick={async () => {
+                          await handleAddStudent(addStudentModal.sessionId, u.id, u.name);
+                          setAddStudentModal(null);
+                        }}
+                      >
+                        <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--primary-gradient)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 600, flexShrink: 0 }}>
+                          {u.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 500, fontSize: '0.9rem' }}>{u.name}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.email}</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Cash Payment Modal */}
+      {cashModal && (
+        <div className="modal-overlay" onClick={() => setCashModal(null)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: 380 }}>
+            <div className="modal-header">
+              <h3><Banknote size={18} /> Pagamento em Mão</h3>
+              <button className="btn btn-sm btn-secondary" onClick={() => setCashModal(null)}><X size={14} /></button>
+            </div>
+            <div className="modal-body">
+              <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem', fontSize: '0.9rem' }}>
+                Registar pagamento em numerário de <strong>{cashModal.studentName}</strong>
+              </p>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="label">Valor (€)</label>
+                <input
+                  className="input"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="Ex: 12.00"
+                  value={cashAmount}
+                  onChange={e => setCashAmount(e.target.value)}
+                  autoFocus
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setCashModal(null)}>Cancelar</button>
+              <button
+                className="btn btn-primary"
+                onClick={handleCashPayment}
+                disabled={!cashAmount || parseFloat(cashAmount) <= 0}
+              >
+                <Banknote size={14} /> Confirmar Pagamento
               </button>
             </div>
           </div>

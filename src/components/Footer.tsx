@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { Instagram, Facebook, Youtube, Mail, Phone, MapPin } from 'lucide-react';
 import { SiteConfig } from '../types';
 
@@ -13,10 +14,9 @@ export function Footer({ config }: FooterProps) {
         <div className="footer-grid">
           <div className="footer-brand">
             <div className="footer-logo">
-              <span className="logo-joy">JOY</span>
-              <span className="logo-sub">Joaquim Oliveira Yoga</span>
+              <span className="logo-joy">{config.siteName || 'JOY'}</span>
+              <span className="logo-sub">{config.tagline || 'Joaquim Oliveira Yoga'}</span>
             </div>
-            <p className="footer-tagline">{config.tagline}</p>
           </div>
 
           <div className="footer-contact">
@@ -67,6 +67,11 @@ export function Footer({ config }: FooterProps) {
 
         <div className="footer-bottom">
           <p>{config.footerText}</p>
+          <div className="footer-legal-links">
+            <Link to="/privacidade">Política de Privacidade</Link>
+            <span aria-hidden="true">·</span>
+            <Link to="/termos">Termos e Condições</Link>
+          </div>
         </div>
       </div>
 
@@ -184,6 +189,29 @@ export function Footer({ config }: FooterProps) {
           font-size: 0.8125rem;
           color: rgba(255, 255, 255, 0.4);
           margin: 0;
+        }
+
+        .footer-legal-links {
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          gap: 0.625rem;
+          margin-top: 0.75rem;
+          font-size: 0.75rem;
+        }
+
+        .footer-legal-links a {
+          color: rgba(255, 255, 255, 0.55);
+          text-decoration: none;
+          transition: color var(--transition-fast);
+        }
+
+        .footer-legal-links a:hover {
+          color: white;
+        }
+
+        .footer-legal-links span {
+          color: rgba(255, 255, 255, 0.3);
         }
 
         @media (max-width: 768px) {

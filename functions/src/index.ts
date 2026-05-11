@@ -12,6 +12,12 @@ export { getPaymentStatus } from './getPaymentStatus';
 // Promo Code functions
 export { validatePromoCode, applyPromoCode } from './validatePromoCode';
 
+// Gift Card functions
+export { redeemGiftCard } from './redeemGiftCard';
+
+// Referral Program
+export { processReferral } from './processReferral';
+
 // Google OAuth & Reviews (kept)
 export { exchangeGoogleOAuthCode } from './googleOAuth';
 export { importGoogleReviews } from './importGoogleReviews';
@@ -25,3 +31,44 @@ export { manualPaymentUpdate } from './manualPaymentUpdate';
 // Subscription lifecycle
 export { checkExpiringSubscriptions } from './checkExpiringSubscriptions';
 export { handleExpiredSubscriptions } from './handleExpiredSubscriptions';
+
+// Notifications
+export { onPurchaseCreated, onSessionUpdated, sendSessionReminders, sendExpiryWarnings, onMassMessageCreated } from './notificationTriggers';
+
+// Zoom
+export { createZoomMeeting, deleteZoomMeeting } from './createZoomMeeting';
+
+// Professor account management
+export { createProfessorAccount } from './createProfessorAccount';
+export { generateProfessorResetLink } from './generateProfessorResetLink';
+
+// Client account management
+export { createClientAccount } from './createClientAccount';
+
+// Calendar iCal feed
+export { userCalendar } from './userCalendar';
+
+// Birthday emails
+export { sendBirthdayEmails } from './birthdayEmails';
+
+// Session management
+export { cancelSessionWithRefund } from './cancelSessionWithRefund';
+export { substituteSessionProfessor } from './substituteSessionProfessor';
+
+// Notification testing
+export { sendTestEmail } from './sendTestEmail';
+
+// Backups
+export { backupFirestore } from './backupFirestore';
+
+// Chat push notifications
+export { onChatMessageCreated } from './onChatMessageCreated';
+
+// Lists for professor portal (privileged reads)
+export { listClientsForProfessor } from './listClientsForProfessor';
+
+// Professor earnings (privileged read of purchases for justification)
+export { getProfessorEarnings } from './getProfessorEarnings';
+
+// Debug
+export { debugSessions } from './debugSessions';

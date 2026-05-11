@@ -16,6 +16,12 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
+    function isProfLinkedToConv(professorId) {
+      // Check if the logged-in user is the professor linked to this conversation
+      return isAuthenticated() && professorId != null &&
+        get(/databases/$(database)/documents/professors/$(professorId)).data.linkedUserId == request.auth.uid;
+    }
+
     // ============================================
     // PUBLIC: Site content (read-only)
     // ============================================
@@ -41,7 +47,9 @@ service cloud.firestore {
     }
 
     match /admins/{adminId} {
-      allow read: if isAuthenticated() && request.auth.uid == adminId;
+      // Any authenticated user can read admins (just permission flags, no PII)
+      // — needed so clients/professors can identify admins in chat targets.
+      allow read: if isAuthenticated();
       allow write: if isAdmin();
     }
 
@@ -63,8 +71,9 @@ service cloud.firestore {
     // SESSIONS
     // ============================================
     match /sessions/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
+      allow read: if true; // public for landing page schedule
+      allow update: if isAuthenticated(); // clients can enroll/cancel
+      allow create, delete: if isAdmin();
     }
 
     // ============================================
@@ -81,11 +90,11 @@ service cloud.firestore {
       );
       allow create: if isAuthenticated();
       allow update: if isAdmin();
-      allow delete: if false;
+      allow delete: if isAdmin();
     }
 
     match /promoCodeRedemptions/{id} {
-      allow read: if isAuthenticated() && request.auth.uid == resource.data.userId;
+      allow read: if isAdmin() || (isAuthenticated() && request.auth.uid == resource.data.userId);
       allow write: if false;
     }
 
@@ -95,10 +104,29 @@ service cloud.firestore {
     // CREDITS & PAYMENTS TRACKING
     // ============================================
     match /credits/{id} { allow read: if isAuthenticated(); allow write: if isAdmin(); }
+    match /massMessages/{id} { allow read, write: if isAdmin(); }
+    match /notificationLogs/{id} { allow read: if isAdmin(); allow write: if false; }
+    match /pendingWhatsApp/{id} { allow read, write: if isAdmin(); }
     match /locationPayments/{id} { allow read, write: if isAdmin(); }
+    match /locationMonthlyCosts/{id} {
+      // Read: anyone authenticated (used by cloud function & admin UI; data is just rent figures)
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    match /bookingRequests/{id} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated();
+      allow update: if isAdmin();
+    }
     match /purchases/{id} {
       allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow write: if isAdmin();
+      // Allow the owner to update only sessionsUsed/sessionsRemaining/updatedAt (used when consuming a session)
+      allow update: if isAdmin() || (
+        isAuthenticated() &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['sessionsUsed', 'sessionsRemaining', 'updatedAt'])
+      );
+      allow create, delete: if isAdmin();
     }
 
     // ============================================
@@ -108,6 +136,107 @@ service cloud.firestore {
 
     // CLIENT RESOURCES (V2)
     match /clientResources/{id} { allow read: if isAuthenticated(); allow write: if isAdmin(); }
+
+    // ============================================
+    // CONTENT LIBRARY
+    // ============================================
+    match /content/{id} { allow read: if isAuthenticated(); allow write: if isAdmin(); }
+    match /contentSubscriptions/{id} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    // ============================================
+    // SESSION RATINGS
+    // ============================================
+    match /sessionRatings/{id} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update: if isAdmin(); // approve/reject
+      allow delete: if isAdmin();
+    }
+
+    // ============================================
+    // CHAT (supports legacy admin↔client + new direct/group/community)
+    // ============================================
+    function isMember(convData) {
+      // New-style: member if uid is in memberIds
+      return convData.memberIds is list && request.auth.uid in convData.memberIds;
+    }
+    function isOpenCommunity(convData) {
+      return convData.type == 'community' && convData.isOpenToAll == true;
+    }
+    function canReadConv(convData) {
+      return isAdmin()
+        || (convData.clientId is string && convData.clientId == request.auth.uid)
+        || isProfLinkedToConv(convData.professorId)
+        || isMember(convData)
+        || isOpenCommunity(convData);
+    }
+
+    match /conversations/{convId} {
+      allow read: if isAuthenticated() && canReadConv(resource.data);
+      // Anyone authenticated can create a new conversation they're a member of
+      allow create: if isAuthenticated() && (
+        isAdmin()
+        || (request.resource.data.clientId == request.auth.uid)
+        || (request.resource.data.memberIds is list && request.auth.uid in request.resource.data.memberIds)
+      );
+      // Update: members can update (e.g. mute/unread) — admin always
+      allow update: if isAuthenticated() && (
+        isAdmin()
+        || canReadConv(resource.data)
+      );
+      allow delete: if isAdmin();
+
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() && canReadConv(
+          get(/databases/$(database)/documents/conversations/$(convId)).data
+        );
+        allow create: if isAuthenticated() && canReadConv(
+          get(/databases/$(database)/documents/conversations/$(convId)).data
+        ) && request.resource.data.senderId == request.auth.uid;
+        allow update: if false;
+        allow delete: if isAdmin();
+      }
+    }
+
+    // ============================================
+    // PROFESSOR PERSONAL DATA (subcollections)
+    // Completely private — admin has NO access.
+    // Only the professor whose linkedUserId matches the authenticated user.
+    // ============================================
+    function isProfessorOwner(professorId) {
+      return isAuthenticated() &&
+        get(/databases/$(database)/documents/professors/$(professorId)).data.linkedUserId == request.auth.uid;
+    }
+
+    // ============================================
+    // PROFESSOR PAYMENTS (studio → professor)
+    // Admin creates, professor reads/confirms own.
+    // ============================================
+    match /professorPayments/{id} {
+      allow read: if isAdmin() || (
+        isAuthenticated() && resource.data.professorId is string &&
+        get(/databases/$(database)/documents/professors/$(resource.data.professorId)).data.linkedUserId == request.auth.uid
+      );
+      allow create, delete: if isAdmin();
+      // Admin can edit anything; the linked professor can only flip status to 'confirmed'
+      allow update: if isAdmin() || (
+        isAuthenticated() && resource.data.professorId is string &&
+        get(/databases/$(database)/documents/professors/$(resource.data.professorId)).data.linkedUserId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'confirmedAt', 'updatedAt']) &&
+        request.resource.data.status == 'confirmed'
+      );
+    }
+
+    match /professors/{professorId}/personalLocations/{locId} {
+      allow read, write: if isProfessorOwner(professorId);
+    }
+
+    match /professors/{professorId}/personalSessions/{sessId} {
+      allow read, write: if isProfessorOwner(professorId);
+    }
 
     // ============================================
     // DEFAULT DENY
