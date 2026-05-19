@@ -65,6 +65,9 @@ const DEFAULT_CONFIG: NotificationConfig = {
 const CHANNEL_ICONS: Record<string, any> = { email: Mail, whatsapp: MessageCircle, telegram: Send, app: Bell };
 const CHANNEL_LABELS: Record<string, string> = { email: 'Email', whatsapp: 'WhatsApp', telegram: 'Telegram', app: 'App' };
 
+// Triggers where the professor option doesn't apply (only student/admin)
+const NO_PROFESSOR_TRIGGERS = new Set(['plan_purchased', 'plan_expiring']);
+
 export function AdminNotifications() {
   const [config, setConfig] = useState<NotificationConfig>(DEFAULT_CONFIG);
   const [loading, setLoading] = useState(true);
@@ -207,8 +210,13 @@ export function AdminNotifications() {
                     <label className="notify-label">
                       <input type="checkbox" checked={t.notifyStudent} onChange={e => updateTrigger(i, 'notifyStudent', e.target.checked)} /> Aluno
                     </label>
-                    <label className="notify-label">
-                      <input type="checkbox" checked={t.notifyProfessor} onChange={e => updateTrigger(i, 'notifyProfessor', e.target.checked)} /> Professor
+                    {!NO_PROFESSOR_TRIGGERS.has(t.trigger) && (
+                      <label className="notify-label">
+                        <input type="checkbox" checked={t.notifyProfessor} onChange={e => updateTrigger(i, 'notifyProfessor', e.target.checked)} /> Professor
+                      </label>
+                    )}
+                    <label className="notify-label" title="Push broadcast a todos os admins (apenas canal App)">
+                      <input type="checkbox" checked={(t as any).notifyAdmin || false} onChange={e => updateTrigger(i, 'notifyAdmin', e.target.checked)} /> Admin
                     </label>
                   </div>
 

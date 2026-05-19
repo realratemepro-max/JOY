@@ -1,7 +1,7 @@
 // JOY - Joaquim Oliveira Yoga - Type Definitions
 
 // ============ Loyalty / Gamification ============
-export type LoyaltyTheme = 'chakras' | 'lotus' | 'limbs' | 'belts' | 'custom';
+export type LoyaltyTheme = 'chakras' | 'lotus' | 'limbs' | 'custom';
 
 export interface LoyaltyLevel {
   name: string;          // e.g. "Muladhara (Raiz)"
@@ -12,10 +12,26 @@ export interface LoyaltyLevel {
   motivation?: string;   // celebratory message when reached
 }
 
+/** One theme inside the loyalty journey — students complete themes sequentially. */
+export interface LoyaltyThemeBlock {
+  id: string;                // 'chakras' | 'lotus' | 'limbs' | custom slug
+  name: string;              // display name
+  theme: LoyaltyTheme;       // preset key (for default icons/coloring)
+  icon?: string;             // emoji for the theme
+  description?: string;
+  levels: LoyaltyLevel[];    // ordered by threshold ascending
+}
+
 export interface LoyaltyConfig {
   enabled: boolean;
-  theme: LoyaltyTheme;
-  levels: LoyaltyLevel[];
+  // Legacy fields (kept for backwards compatibility — auto-migrated to themes[0] on next save)
+  theme?: LoyaltyTheme;
+  levels?: LoyaltyLevel[];
+  // New multi-theme journey
+  themes?: LoyaltyThemeBlock[];
+  // Decay tuning
+  decayDaysWarning?: number;   // days since last attendance → 'paused' state (default 30)
+  decayDaysInactive?: number;  // days since last attendance → 'inactive' state (default 90)
 }
 
 // ============ Site Configuration ============
@@ -151,6 +167,9 @@ export interface Location {
   capacity: number;          // Max students
   amenities: string[];
   mapUrl?: string;
+  googlePlaceId?: string;   // for "share review on Google Maps" deeplink
+  reviewAvg?: number;
+  reviewCount?: number;
   isActive: boolean;
   order: number;
   createdAt: Date;
@@ -188,6 +207,7 @@ export interface ProfessorPermissions {
   canViewEarnings: boolean;         // see own earnings/payments
   canAddStudentsToSession: boolean; // add a registered student to a session
   canAcceptCashPayment: boolean;    // record cash payments in person
+  canRequestOnlinePayment?: boolean; // dispatch MB Way / Multibanco request on behalf of student
 }
 
 export const DEFAULT_PROFESSOR_PERMISSIONS: ProfessorPermissions = {
@@ -201,6 +221,7 @@ export const DEFAULT_PROFESSOR_PERMISSIONS: ProfessorPermissions = {
   canViewEarnings: true,
   canAddStudentsToSession: false,
   canAcceptCashPayment: false,
+  canRequestOnlinePayment: false,
 };
 
 export interface Professor {
@@ -217,6 +238,10 @@ export interface Professor {
   landingSpecialty?: string;    // e.g. "Hatha Yoga · Meditação"
   landingBio?: string;          // shorter bio for the landing page card
   landingHighlights?: string[]; // e.g. ["RYT-200 Yoga Alliance", "+5 anos experiência"]
+
+  // Review aggregations (kept in sync by updateReviewStats triggers)
+  reviewAvg?: number;
+  reviewCount?: number;
 
   // Payment
   paymentModel: ProfessorPaymentModel;
@@ -466,6 +491,8 @@ export interface User {
   phone?: string;
   photoUrl?: string;
   dateOfBirth?: string;
+  nif?: string;                  // Portuguese tax ID (9 digits) — used for invoices
+  consumidorFinal?: boolean;     // True if user explicitly opts out of invoices with NIF
   emergencyContact?: string;
   goals?: string;
   injuries?: string;
@@ -475,12 +502,17 @@ export interface User {
   activePlanId?: string;
   activePlanName?: string;
   chatVisible?: boolean; // Client opt-in to be discoverable by other clients in chat
+  totalAttendances?: number;   // running count of attended classes (loyalty progression)
+  lastAttendanceAt?: Date;     // timestamp of most recent attended class
   status: UserStatus;
   createdAt: Date;
   updatedAt: Date;
 }
 
 // ============ Testimonials ============
+export type TestimonialOrigin = 'manual' | 'client_submitted' | 'google' | 'imported';
+export type TestimonialStatus = 'pending' | 'approved' | 'rejected';
+
 export interface Testimonial {
   id: string;
   name: string;
@@ -489,7 +521,23 @@ export interface Testimonial {
   photo?: string;
   isActive: boolean;
   order: number;
+  // Tags — testimonial appears wherever it's tagged
+  taggedProfessorIds?: string[];
+  taggedLocationIds?: string[];
+  // Source tracking
+  origin?: TestimonialOrigin;
+  userId?: string;            // if submitted by a registered client
+  userEmail?: string;
+  // Moderation
+  status?: TestimonialStatus; // pending | approved | rejected (manual entries default to approved)
+  approvedAt?: Date;
+  approvedBy?: string;
+  // Featured on landing
+  featured?: boolean;
+  // Google share tracking
+  sharedToGoogleAt?: Date;
   createdAt: Date;
+  updatedAt?: Date;
 }
 
 // ============ Payments ============
@@ -540,6 +588,29 @@ export interface Payment {
   updatedAt: Date;
   paidAt?: Date;
   expiresAt?: Date;
+}
+
+// ============ Expenses (manual accounting entries) ============
+export type ExpenseCategory = 'rent' | 'professor_payment' | 'material' | 'marketing' | 'utilities' | 'tax' | 'other';
+
+export interface Expense {
+  id: string;
+  date: Date;                       // date the expense was incurred
+  category: ExpenseCategory;
+  description: string;
+  amount: number;                   // including VAT
+  vatAmount?: number;               // optional split
+  supplier?: string;
+  supplierNif?: string;
+  invoiceNumber?: string;           // their invoice number to us
+  attachmentUrl?: string;
+  paid: boolean;
+  paidAt?: Date;
+  paymentMethod?: 'transfer' | 'mbway' | 'cash' | 'card' | 'other';
+  notes?: string;
+  createdBy: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 // ============ Professor Payments (studio → professor) ============
@@ -703,6 +774,7 @@ export interface NotificationSetting {
   };
   notifyStudent: boolean;
   notifyProfessor: boolean;
+  notifyAdmin?: boolean;
   template?: string;
   professorTemplate?: string;
 }
@@ -746,10 +818,15 @@ export interface SessionRating {
   sessionDate?: Date;
   userId: string;
   userName: string;
-  stars: number; // 1-5
-  comment?: string; // if present → pending approval
-  status: RatingStatus;
-  testimonialId?: string; // created when approved
+  professorId?: string;
+  professorName?: string;
+  locationId?: string;
+  locationName?: string;
+  stars: number;            // 1-5 — feeds aggregations
+  comment?: string;         // private feedback (not public)
+  status: RatingStatus;     // pending | approved | rejected (kept for backwards compat)
+  testimonialId?: string;   // legacy
+  isPrivate?: boolean;      // new: when true, comment stays private even if approved
   createdAt: Date;
 }
 

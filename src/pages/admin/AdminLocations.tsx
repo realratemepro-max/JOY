@@ -290,6 +290,11 @@ export function AdminLocations() {
             <div className="form-group">
               <label className="label">URL Google Maps (opcional)</label>
               <input className="input" value={editData.mapUrl || ''} onChange={e => setEditData({ ...editData, mapUrl: e.target.value })} placeholder="https://maps.google.com/..." />
+              <label className="label" style={{ marginTop: '0.625rem' }}>Google Place ID (para reviews)</label>
+              <input className="input" value={editData.googlePlaceId || ''} onChange={e => setEditData({ ...editData, googlePlaceId: e.target.value })} placeholder="ChIJxxxxxxxxxxxx" />
+              <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)', display: 'block', marginTop: '0.25rem' }}>
+                Permite ao aluno partilhar o testemunho no Google Maps com 1 clique.
+              </span>
             </div>
           </div>
 

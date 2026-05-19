@@ -4,6 +4,9 @@ import { useAuth } from '../context/AuthContext';
 import { ConsentGate } from './ConsentGate';
 import { LevelUpToast } from './LevelUpToast';
 import { PushPermissionPrompt } from './PushPermissionPrompt';
+import { InstallAppPrompt } from './InstallAppPrompt';
+import { InstallAppButton } from './InstallAppButton';
+import { ProfileCompletionAlert } from './ProfileCompletionAlert';
 import {
   LayoutDashboard, Calendar, CreditCard, UserCircle, Trophy,
   ClipboardList, LogOut, Menu, X, ChevronRight, CalendarDays, Library, MessageCircle, ChevronLeft,
@@ -48,6 +51,8 @@ export function ClientLayout({ children }: ClientLayoutProps) {
     <ConsentGate>
     <LevelUpToast />
     <PushPermissionPrompt />
+    <InstallAppPrompt />
+    <ProfileCompletionAlert />
     <div className={`cl-layout${collapsed ? ' cl-collapsed' : ''}`}>
       <aside className={`cl-sidebar${sidebarOpen ? ' open' : ''}`}>
         <div className="cl-sidebar-header">
@@ -90,6 +95,7 @@ export function ClientLayout({ children }: ClientLayoutProps) {
         </nav>
 
         <div className="cl-sidebar-footer">
+          <InstallAppButton className="cl-link cl-install" iconClassName="cl-link-icon" labelClassName="cl-link-label" label="Instalar app" />
           <Link to="/" className="cl-link" title="Ver Site">
             <LayoutDashboard size={18} className="cl-link-icon" />
             <span className="cl-link-label">Ver Site</span>

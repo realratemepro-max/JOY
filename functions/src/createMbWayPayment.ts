@@ -32,11 +32,12 @@ export const createMbWayPayment = functions.region('europe-west1').https.onReque
     const API_KEY = config.paymentApiKey || process.env.EUPAGO_CLIENT_ID || functions.config().eupago?.api_key;
     const BASE_URL = config.paymentApiBaseUrl || 'https://clientes.eupago.pt';
 
-    const { userId, amount, phone, email, planId, planName, type, sessionId, attendanceMode } = req.body;
+    const { userId, amount, phone, email: rawEmail, planId, planName, type, sessionId, attendanceMode, startMode, nif, consumidorFinal } = req.body;
 
-    if (!userId || !amount || !phone || !email || !planId) {
+    if (!userId || !amount || !phone || !rawEmail || !planId) {
       res.status(400).json({ error: 'Campos obrigatórios: userId, amount, phone, email, planId' }); return;
     }
+    const email = String(rawEmail).trim().toLowerCase();
     if (parseFloat(amount) < 1.0) {
       res.status(400).json({ error: 'Valor mínimo: €1.00' }); return;
     }
@@ -55,6 +56,10 @@ export const createMbWayPayment = functions.region('europe-west1').https.onReque
       type: type || 'plan_subscription',
       amount: parseFloat(amount), method: 'MBWay', status: 'Pending', identifier,
       ...(sessionId ? { sessionId, attendanceMode: attendanceMode || 'presencial' } : {}),
+      startMode: startMode === 'first_class' ? 'first_class' : 'immediate',
+      nif: nif || '',
+      consumidorFinal: !!consumidorFinal,
+      invoiceStatus: 'pending', // for accounting tracking
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });

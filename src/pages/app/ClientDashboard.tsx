@@ -4,8 +4,9 @@ import { collection, getDocs, query, where, orderBy, limit, doc, getDoc, updateD
 import { db } from '../../services/firebase';
 import { useAuth } from '../../context/AuthContext';
 import { Session, Payment, LoyaltyConfig } from '../../types';
-import { getCurrentLevel } from '../../services/loyaltyPresets';
-import { Calendar, CreditCard, ClipboardList, MapPin, Clock, ArrowRight, Sparkles, Award, AlertTriangle, Users, Copy, CheckCheck } from 'lucide-react';
+import { computeJourney, normaliseLoyaltyConfig } from '../../services/loyaltyPresets';
+import { Calendar, CreditCard, ClipboardList, MapPin, Clock, ArrowRight, Sparkles, Award, AlertTriangle, Users, Copy, CheckCheck, Star, MessageCircle } from 'lucide-react';
+import { TestimonialComposer } from '../../components/TestimonialComposer';
 
 interface Purchase {
   id: string; planName: string; locationName: string;
@@ -28,8 +29,21 @@ export function ClientDashboard() {
   const [welcomePromo, setWelcomePromo] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [loyalty, setLoyalty] = useState<LoyaltyConfig | null>(null);
+  const [showTestimonialComposer, setShowTestimonialComposer] = useState(false);
+  const [hasTestimonial, setHasTestimonial] = useState<boolean | null>(null);
 
   useEffect(() => { if (user) loadData(); }, [user]);
+
+  // Check if user already has a testimonial
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, 'testimonials', user.uid));
+        setHasTestimonial(snap.exists());
+      } catch { setHasTestimonial(false); }
+    })();
+  }, [user]);
 
   const loadData = async () => {
     try {
@@ -243,9 +257,38 @@ export function ClientDashboard() {
           </div>
         )}
 
+        {/* Testimonial CTA — after 3rd class, before they have written one */}
+        {totalAttended >= 3 && hasTestimonial === false && (
+          <div className="dash-card" style={{ borderLeft: '4px solid #f59e0b', cursor: 'pointer' }} onClick={() => setShowTestimonialComposer(true)}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#fef3c7', color: '#92400e', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <MessageCircle size={20} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <strong style={{ display: 'block', fontSize: '0.9375rem' }}>Partilha a tua experiência</strong>
+                <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>Já praticas connosco há algumas aulas. Importas-te de deixar a tua opinião? Ajudas outros a descobrir o JOY 🌿</span>
+              </div>
+              <button className="btn btn-sm btn-primary" style={{ flexShrink: 0 }}><Star size={14} /> Escrever</button>
+            </div>
+          </div>
+        )}
+
+        {/* Edit own testimonial CTA */}
+        {hasTestimonial === true && (
+          <div className="dash-card" style={{ cursor: 'pointer' }} onClick={() => setShowTestimonialComposer(true)}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+              <CheckCheck size={16} color="#10b981" />
+              <span style={{ flex: 1, fontSize: '0.875rem', color: 'var(--text-secondary)' }}>O teu testemunho já está submetido. <strong style={{ color: 'var(--primary)' }}>Editar?</strong></span>
+            </div>
+          </div>
+        )}
+
         {/* Loyalty */}
-        {loyalty?.enabled && loyalty.levels.length > 0 && (() => {
-          const { current, next } = getCurrentLevel(totalAttended, loyalty.levels);
+        {(() => {
+          if (!loyalty?.enabled) return null;
+          const norm = normaliseLoyaltyConfig(loyalty);
+          if (!norm.themes || norm.themes.length === 0) return null;
+          const { currentLevel: current, nextLevel: next, toNextLevel } = computeJourney(totalAttended, norm.themes);
           const currentThreshold = current?.threshold || 0;
           const nextThreshold = next?.threshold || currentThreshold;
           const span = Math.max(1, nextThreshold - currentThreshold);
@@ -313,6 +356,13 @@ export function ClientDashboard() {
         .level-next { font-size: 0.75rem; color: var(--text-muted); }
         @media (max-width: 768px) { .dashboard-grid { grid-template-columns: 1fr; } .loyalty-progress { flex-direction: column; text-align: center; } }
       `}</style>
+
+      {showTestimonialComposer && (
+        <TestimonialComposer
+          onClose={() => setShowTestimonialComposer(false)}
+          onSubmitted={() => { setHasTestimonial(true); }}
+        />
+      )}
     </div>
   );
 }

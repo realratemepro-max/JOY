@@ -6,6 +6,8 @@
 
 const FUNCTIONS_URL = 'https://europe-west1-realrateme-731f1.cloudfunctions.net';
 
+export type StartMode = 'immediate' | 'first_class';
+
 export interface MbWayPaymentParams {
   planId: string;
   planName?: string;
@@ -16,6 +18,9 @@ export interface MbWayPaymentParams {
   type?: 'plan_subscription' | 'event_booking' | 'single_class';
   sessionId?: string;
   attendanceMode?: 'presencial' | 'online';
+  startMode?: StartMode;
+  nif?: string;
+  consumidorFinal?: boolean;
 }
 
 export interface MultibancoPaymentParams {
@@ -27,6 +32,9 @@ export interface MultibancoPaymentParams {
   type?: 'plan_subscription' | 'event_booking' | 'single_class';
   sessionId?: string;
   attendanceMode?: 'presencial' | 'online';
+  startMode?: StartMode;
+  nif?: string;
+  consumidorFinal?: boolean;
 }
 
 export interface PaymentResult {
@@ -56,6 +64,9 @@ export async function createMbWayPayment(params: MbWayPaymentParams): Promise<Pa
         type: params.type || 'plan_subscription',
         sessionId: params.sessionId || null,
         attendanceMode: params.attendanceMode || null,
+        startMode: params.startMode || 'immediate',
+        nif: params.nif || '',
+        consumidorFinal: !!params.consumidorFinal,
       }),
     });
     const data = await response.json();
@@ -83,6 +94,9 @@ export async function createMultibancoPayment(params: MultibancoPaymentParams): 
         type: params.type || 'plan_subscription',
         sessionId: params.sessionId || null,
         attendanceMode: params.attendanceMode || null,
+        startMode: params.startMode || 'immediate',
+        nif: params.nif || '',
+        consumidorFinal: !!params.consumidorFinal,
       }),
     });
     const data = await response.json();

@@ -19,6 +19,7 @@ const PERMISSION_LABELS: { key: keyof ProfessorPermissions; label: string; descr
   { key: 'canViewEarnings',          label: 'Ver Ganhos',             description: 'Pode consultar o resumo dos seus pagamentos' },
   { key: 'canAddStudentsToSession',  label: 'Adicionar Alunos à Aula', description: 'Pode inscrever alunos registados diretamente numa aula' },
   { key: 'canAcceptCashPayment',     label: 'Aceitar Pagamento em Mão', description: 'Pode registar pagamentos em numerário no portal' },
+  { key: 'canRequestOnlinePayment',  label: 'Pedir Pagamento Online',  description: 'Pode disparar pedidos MB Way / Multibanco em nome do aluno' },
 ];
 
 function getMonthRange(date: Date) {

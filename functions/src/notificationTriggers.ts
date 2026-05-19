@@ -21,6 +21,8 @@ export const onPurchaseCreated = functions.firestore
       recipientEmail: data.userEmail,
       recipientPhone: data.userPhone || '',
       recipientName: data.userName,
+      recipientUid: data.userId,
+      recipientRole: 'client',
       variables: {
         nome: data.userName || data.userEmail,
         plano: data.planName || '',
@@ -79,7 +81,15 @@ export const onSessionUpdated = functions.firestore
           professor: after.professorName || '',
         };
         if (getTriggerConfig('session_booked')?.notifyStudent !== false) {
-          await sendNotification({ trigger: 'session_booked', recipientEmail: user?.email || '', recipientPhone: user?.phone || '', recipientName: student.userName, variables: bookingVars });
+          await sendNotification({
+            trigger: 'session_booked',
+            recipientEmail: user?.email || '',
+            recipientPhone: user?.phone || '',
+            recipientName: student.userName,
+            recipientUid: student.userId,
+            recipientRole: 'client',
+            variables: bookingVars,
+          });
         }
         // Notify professor
         const tc = getTriggerConfig('session_booked');
@@ -87,7 +97,16 @@ export const onSessionUpdated = functions.firestore
           const prof = await getProfessor();
           if (prof?.email) {
             const defaultProfTemplate = 'Olá {{professor}}!\n\n{{aluno}} inscreveu-se na aula de {{data}} às {{hora}} em {{espaco}}.';
-            await sendNotification({ trigger: 'session_booked', recipientEmail: prof.email, recipientPhone: prof.phone || '', recipientName: prof.name, variables: { ...bookingVars, nome: prof.name }, templateOverride: tc?.professorTemplate || defaultProfTemplate });
+            await sendNotification({
+              trigger: 'session_booked',
+              recipientEmail: prof.email,
+              recipientPhone: prof.phone || '',
+              recipientName: prof.name,
+              recipientUid: prof.linkedUserId,
+              recipientRole: 'professor',
+              variables: { ...bookingVars, nome: prof.name },
+              templateOverride: tc?.professorTemplate || defaultProfTemplate,
+            });
           }
         }
       } catch (e) { console.error('Error notifying booking:', e); }
@@ -129,6 +148,8 @@ export const onSessionUpdated = functions.firestore
             recipientEmail: user?.email || '',
             recipientPhone: user?.phone || '',
             recipientName: student.userName,
+            recipientUid: student.userId,
+            recipientRole: 'client',
             variables: {
               nome: student.userName,
               aluno: student.userName,
@@ -165,14 +186,31 @@ export const onSessionUpdated = functions.firestore
           compensacao: 'Podes remarcar a qualquer momento no portal.',
         };
         if (getTriggerConfig('session_cancelled')?.notifyStudent !== false) {
-          await sendNotification({ trigger: 'session_cancelled', recipientEmail: user?.email || '', recipientPhone: user?.phone || '', recipientName: student.userName, variables: cancelVars });
+          await sendNotification({
+            trigger: 'session_cancelled',
+            recipientEmail: user?.email || '',
+            recipientPhone: user?.phone || '',
+            recipientName: student.userName,
+            recipientUid: student.userId,
+            recipientRole: 'client',
+            variables: cancelVars,
+          });
         }
         const tc = getTriggerConfig('session_cancelled');
         if (tc?.notifyProfessor !== false) {
           const prof = await getProfessor();
           if (prof?.email) {
             const defaultProfTemplate = 'Olá {{professor}}!\n\n{{aluno}} cancelou a inscrição na aula de {{data}} às {{hora}} em {{espaco}}.';
-            await sendNotification({ trigger: 'session_cancelled', recipientEmail: prof.email, recipientPhone: prof.phone || '', recipientName: prof.name, variables: { ...cancelVars, nome: prof.name }, templateOverride: tc?.professorTemplate || defaultProfTemplate });
+            await sendNotification({
+              trigger: 'session_cancelled',
+              recipientEmail: prof.email,
+              recipientPhone: prof.phone || '',
+              recipientName: prof.name,
+              recipientUid: prof.linkedUserId,
+              recipientRole: 'professor',
+              variables: { ...cancelVars, nome: prof.name },
+              templateOverride: tc?.professorTemplate || defaultProfTemplate,
+            });
           }
         }
       } catch (e) { console.error('Error notifying cancellation:', e); }
@@ -195,6 +233,8 @@ export const onSessionUpdated = functions.firestore
             recipientEmail: user?.email || promoted.userEmail || '',
             recipientPhone: user?.phone || '',
             recipientName: promoted.userName,
+            recipientUid: promoted.userId,
+            recipientRole: 'client',
             variables: { nome: promoted.userName, data: dateStr, hora: after.startTime || '', espaco: after.locationName || '', professor: after.professorName || '' },
           });
           console.log('⬆️ Waitlist promoted:', promoted.userName);
@@ -215,13 +255,19 @@ export const onSessionUpdated = functions.firestore
         const user = userDoc.exists ? userDoc.data() : null;
         // Increment attendance counter on user doc
         const currentTotal = (user?.totalAttendances || 0) + 1;
-        await db.collection('users').doc(student.userId).update({ totalAttendances: currentTotal, updatedAt: new Date() });
+        await db.collection('users').doc(student.userId).update({
+          totalAttendances: currentTotal,
+          lastAttendanceAt: new Date(),
+          updatedAt: new Date(),
+        });
 
         await sendNotification({
           trigger: 'class_attended',
           recipientEmail: user?.email || '',
           recipientPhone: user?.phone || '',
           recipientName: student.userName,
+          recipientUid: student.userId,
+          recipientRole: 'client',
           variables: {
             nome: student.userName,
             data: dateStr,
@@ -235,6 +281,31 @@ export const onSessionUpdated = functions.firestore
         const idx = afterStudents.findIndex((s: any) => s.userId === student.userId);
         if (idx >= 0) afterStudents[idx] = { ...afterStudents[idx], notifiedAttended: true };
         console.log('🌟 Attendance notification sent to:', student.userName, `(${currentTotal} total)`);
+
+        // After 3+ attended classes, invite to write a testimonial — ONLY ONCE per user.
+        // The >= catches existing students who already passed 3 attendances before
+        // this feature was deployed — they get the invite on their next class.
+        if (currentTotal >= 3 && !user?.testimonialInviteSentAt) {
+          try {
+            await sendNotification({
+              trigger: 'testimonial_invite',
+              recipientEmail: user?.email || '',
+              recipientPhone: user?.phone || '',
+              recipientName: student.userName,
+              recipientUid: student.userId,
+              recipientRole: 'client',
+              variables: {
+                nome: student.userName,
+                totalPresencas: '3',
+              },
+              templateOverride: 'Olá {{nome}}!\n\nJá praticas connosco há algumas aulas. Importas-te de deixar a tua opinião sobre o JOY? Ajuda outros a descobrirem-nos 🌿\n\nDeixa o teu testemunho na tua área de cliente.',
+            });
+            await db.collection('users').doc(student.userId).update({
+              testimonialInviteSentAt: new Date(),
+            });
+            console.log('💬 Testimonial invite sent to:', student.userName);
+          } catch (e) { console.error('Failed to send testimonial invite:', e); }
+        }
       } catch (e) { console.error('Error sending attendance notification:', e); }
     }
     if (newlyAttended.length > 0) {
@@ -286,6 +357,8 @@ export const sendSessionReminders = functions.pubsub
             recipientEmail: user?.email || '',
             recipientPhone: user?.phone || '',
             recipientName: student.userName,
+            recipientUid: student.userId,
+            recipientRole: 'client',
             variables: {
               nome: student.userName,
               data: session.date?.toDate().toLocaleDateString('pt-PT', { weekday: 'long', day: 'numeric', month: 'long' }) || '',
@@ -320,7 +393,7 @@ export const sendSessionReminders = functions.pubsub
               numAlunos: String(numAlunos),
             };
             const defaultProfTemplate = 'Olá {{professor}}!\n\nLembrete: tens aula em {{horas}}h.\n📅 {{data}}\n🕐 {{hora}} - {{horaFim}}\n📍 {{espaco}}\n👥 Alunos inscritos: {{numAlunos}}';
-            await sendNotification({ trigger: 'session_reminder', recipientEmail: prof.email, recipientPhone: prof.phone || '', recipientName: prof.name, variables: profVars, templateOverride: reminderTc?.professorTemplate || defaultProfTemplate });
+            await sendNotification({ trigger: 'session_reminder', recipientEmail: prof.email, recipientPhone: prof.phone || '', recipientName: prof.name, recipientUid: prof.linkedUserId, recipientRole: 'professor', variables: profVars, templateOverride: reminderTc?.professorTemplate || defaultProfTemplate });
           }
         } catch (e) {
           console.error('Error sending reminder to professor:', e);
@@ -366,6 +439,8 @@ export const sendExpiryWarnings = functions.pubsub
         recipientEmail: purchase.userEmail,
         recipientPhone: purchase.userPhone || '',
         recipientName: purchase.userName,
+        recipientUid: purchase.userId,
+        recipientRole: 'client',
         variables: {
           nome: purchase.userName || purchase.userEmail,
           plano: purchase.planName || '',

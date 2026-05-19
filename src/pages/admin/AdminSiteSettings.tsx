@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { getSiteConfig, updateSiteConfig } from '../../services/siteConfig';
-import { LOYALTY_PRESETS } from '../../services/loyaltyPresets';
-import { SiteConfig, PracticeSection, LoyaltyConfig, LoyaltyTheme, LoyaltyLevel } from '../../types';
-import { Save, Loader, CheckCircle, Plus, X, ChevronDown, ChevronUp, Trophy } from 'lucide-react';
+import { LOYALTY_PRESETS, normaliseLoyaltyConfig, DEFAULT_THEMES } from '../../services/loyaltyPresets';
+import { SiteConfig, PracticeSection, LoyaltyConfig, LoyaltyTheme, LoyaltyLevel, LoyaltyThemeBlock } from '../../types';
+import { Save, Loader, CheckCircle, Plus, X, ChevronDown, ChevronUp, Trophy, ArrowUp, ArrowDown } from 'lucide-react';
 import { ImageUpload } from '../../components/ImageUpload';
 
 export function AdminSiteSettings() {
@@ -618,39 +618,75 @@ export function AdminSiteSettings() {
 
         {/* GAMIFICATION */}
         {activeTab === 'gamification' && (() => {
-          const loyalty: LoyaltyConfig = config.loyalty || { enabled: false, theme: 'chakras', levels: [] };
+          const loyalty = normaliseLoyaltyConfig(config.loyalty as LoyaltyConfig | undefined);
+          const themes: LoyaltyThemeBlock[] = loyalty.themes || [];
           const setLoyalty = (l: LoyaltyConfig) => updateField('loyalty', l);
-          const applyPreset = (theme: LoyaltyTheme) => {
-            if (theme === 'custom') {
-              setLoyalty({ ...loyalty, theme: 'custom', levels: [] });
-            } else {
-              const preset = LOYALTY_PRESETS[theme];
-              setLoyalty({ ...loyalty, theme, levels: JSON.parse(JSON.stringify(preset.levels)) });
+
+          const updateThemes = (newThemes: LoyaltyThemeBlock[]) => setLoyalty({ ...loyalty, themes: newThemes });
+          const updateTheme = (ti: number, patch: Partial<LoyaltyThemeBlock>) => {
+            const next = [...themes];
+            next[ti] = { ...next[ti], ...patch };
+            updateThemes(next);
+          };
+          const moveTheme = (ti: number, dir: -1 | 1) => {
+            const target = ti + dir;
+            if (target < 0 || target >= themes.length) return;
+            const next = [...themes];
+            [next[ti], next[target]] = [next[target], next[ti]];
+            updateThemes(next);
+          };
+          const removeTheme = (ti: number) => {
+            if (!confirm(`Remover o tema "${themes[ti].name}"? Os selos já ganhos pelos alunos continuam visíveis no histórico até guardares.`)) return;
+            updateThemes(themes.filter((_, i) => i !== ti));
+          };
+          const addThemeFromPreset = (key: Exclude<LoyaltyTheme, 'custom'> | 'custom') => {
+            const newId = key === 'custom' ? `custom_${Date.now()}` : key;
+            if (themes.some(t => t.id === newId) && key !== 'custom') {
+              alert(`Tema "${LOYALTY_PRESETS[key as Exclude<LoyaltyTheme, 'custom'>].label}" já está na jornada.`);
+              return;
             }
+            const preset = key === 'custom' ? null : LOYALTY_PRESETS[key];
+            const lastThreshold = themes.reduce((max, t) => Math.max(max, ...t.levels.map(l => l.threshold)), 0);
+            const baseLevels = preset
+              ? JSON.parse(JSON.stringify(preset.levels)) as LoyaltyLevel[]
+              : [{ name: 'Nível 1', threshold: lastThreshold + 10, color: '#7c9a72', icon: '🌟', description: '', motivation: '' }];
+            // Offset thresholds to come after current journey
+            const offsetLevels = baseLevels.map((l, i) => ({ ...l, threshold: lastThreshold + (i === 0 ? 50 : (l.threshold - baseLevels[0].threshold + 50)) }));
+            updateThemes([...themes, {
+              id: newId,
+              name: preset?.label || 'Novo tema',
+              theme: (key === 'custom' ? 'custom' : key) as LoyaltyTheme,
+              icon: preset?.icon || '✨',
+              description: preset?.description || '',
+              levels: offsetLevels,
+            }]);
           };
-          const updateLevel = (i: number, patch: Partial<LoyaltyLevel>) => {
-            const next = [...loyalty.levels];
-            next[i] = { ...next[i], ...patch };
-            setLoyalty({ ...loyalty, levels: next });
+
+          const updateLevel = (ti: number, li: number, patch: Partial<LoyaltyLevel>) => {
+            const newLevels = [...themes[ti].levels];
+            newLevels[li] = { ...newLevels[li], ...patch };
+            updateTheme(ti, { levels: newLevels });
           };
-          const addLevel = () => {
-            const last = loyalty.levels[loyalty.levels.length - 1];
-            const next: LoyaltyLevel = {
-              name: `Novo nível ${loyalty.levels.length + 1}`,
+          const addLevel = (ti: number) => {
+            const cur = themes[ti].levels;
+            const last = cur[cur.length - 1];
+            updateTheme(ti, { levels: [...cur, {
+              name: `Nível ${cur.length + 1}`,
               threshold: last ? last.threshold + 10 : 0,
-              color: '#7c9a72',
-              icon: '🌟',
-              description: '',
-              motivation: '',
-            };
-            setLoyalty({ ...loyalty, levels: [...loyalty.levels, next] });
+              color: '#7c9a72', icon: '🌟', description: '', motivation: '',
+            }] });
           };
-          const removeLevel = (i: number) => setLoyalty({ ...loyalty, levels: loyalty.levels.filter((_, idx) => idx !== i) });
+          const removeLevel = (ti: number, li: number) => updateTheme(ti, { levels: themes[ti].levels.filter((_, i) => i !== li) });
+
+          const resetToDefaults = () => {
+            if (!confirm('Substituir toda a jornada com os 3 temas default (Chakras → Lótus → 8 Membros)?')) return;
+            updateThemes(JSON.parse(JSON.stringify(DEFAULT_THEMES)));
+          };
 
           return (
             <>
               <div className="rules-info-box">
-                Programa de fidelidade — alunos progridem por nível conforme acumulam presenças. Sobe de nível celebrado com toast e mostrado no dashboard / página de conquistas.
+                Programa de fidelidade — alunos progridem por nível dentro de cada tema, e a jornada continua para o tema seguinte quando completam o atual. Selos ganhos persistem para sempre; desbotam visualmente quando o aluno fica inativo, para motivar o regresso.
               </div>
 
               <div className="form-group">
@@ -662,82 +698,112 @@ export function AdminSiteSettings() {
 
               {loyalty.enabled && (
                 <>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="label">Dias até "Em pausa"</label>
+                      <input className="input" type="number" value={loyalty.decayDaysWarning ?? 30} onChange={e => setLoyalty({ ...loyalty, decayDaysWarning: Number(e.target.value) || 30 })} />
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Selos começam a desbotar.</span>
+                    </div>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="label">Dias até "Inativo"</label>
+                      <input className="input" type="number" value={loyalty.decayDaysInactive ?? 90} onChange={e => setLoyalty({ ...loyalty, decayDaysInactive: Number(e.target.value) || 90 })} />
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Selos ficam em preto-e-branco.</span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1.5rem', marginBottom: '0.75rem' }}>
+                    <h4 style={{ margin: 0, fontFamily: 'var(--font-body)', fontSize: '1rem' }}>
+                      <Trophy size={16} style={{ display: 'inline', marginRight: 6 }} /> Jornada de temas ({themes.length})
+                    </h4>
+                    <button type="button" className="btn btn-sm btn-secondary" onClick={resetToDefaults}>↺ Restaurar defaults</button>
+                  </div>
+                  <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', marginTop: 0, marginBottom: '1rem' }}>
+                    Cada tema vem a seguir ao anterior. O aluno só desbloqueia o tema seguinte quando atingir o primeiro threshold dele.
+                  </p>
+
+                  {themes.length === 0 && (
+                    <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Sem temas. Adiciona um abaixo.</p>
+                  )}
+
+                  {themes.map((t, ti) => (
+                    <div key={t.id} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--sand)', borderRadius: 'var(--radius-xl)', padding: '1rem', marginBottom: '1rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                        <span style={{ fontSize: '1.5rem' }}>{t.icon}</span>
+                        <strong style={{ flex: 1, fontSize: '1rem' }}>Tema {ti + 1} · {t.name}</strong>
+                        <button type="button" className="btn btn-sm btn-secondary" onClick={() => moveTheme(ti, -1)} disabled={ti === 0} title="Mover para cima"><ArrowUp size={12} /></button>
+                        <button type="button" className="btn btn-sm btn-secondary" onClick={() => moveTheme(ti, 1)} disabled={ti === themes.length - 1} title="Mover para baixo"><ArrowDown size={12} /></button>
+                        <button type="button" className="btn btn-sm btn-secondary" onClick={() => removeTheme(ti)} style={{ color: 'var(--error)' }}><X size={14} /></button>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px', gap: '0.5rem' }}>
+                        <input className="input" placeholder="Nome do tema" value={t.name} onChange={e => updateTheme(ti, { name: e.target.value })} />
+                        <input className="input" placeholder="Ícone" value={t.icon || ''} onChange={e => updateTheme(ti, { icon: e.target.value })} />
+                      </div>
+                      <input className="input" placeholder="Descrição (curta)" value={t.description || ''} onChange={e => updateTheme(ti, { description: e.target.value })} style={{ marginTop: '0.5rem' }} />
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '0.875rem 0 0.5rem' }}>
+                        <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Níveis ({t.levels.length})</span>
+                        <button type="button" className="btn btn-sm btn-secondary" onClick={() => addLevel(ti)}><Plus size={12} /> Nível</button>
+                      </div>
+
+                      {t.levels.map((lvl, li) => (
+                        <div key={li} style={{ background: 'white', border: '1px solid var(--beige)', borderRadius: 'var(--radius-md)', padding: '0.625rem 0.75rem', marginBottom: '0.375rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.375rem' }}>
+                            <span style={{ width: 24, height: 24, borderRadius: '50%', background: lvl.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', flexShrink: 0, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.1)' }}>{lvl.icon || ''}</span>
+                            <span style={{ flex: 1, fontSize: '0.8125rem', color: 'var(--text-muted)' }}>Nível {li + 1}</span>
+                            <button type="button" className="btn-icon" onClick={() => removeLevel(ti, li)} style={{ color: 'var(--error)' }}><X size={12} /></button>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 80px 90px 60px', gap: '0.375rem' }}>
+                            <input className="input" placeholder="Nome" value={lvl.name} onChange={e => updateLevel(ti, li, { name: e.target.value })} />
+                            <input className="input" placeholder="Emoji" value={lvl.icon || ''} onChange={e => updateLevel(ti, li, { icon: e.target.value })} />
+                            <input className="input" type="number" placeholder="Aulas" value={lvl.threshold} onChange={e => updateLevel(ti, li, { threshold: Number(e.target.value) || 0 })} />
+                            <input type="color" value={lvl.color} onChange={e => updateLevel(ti, li, { color: e.target.value })} style={{ width: '100%', height: 36, border: 'none', cursor: 'pointer', borderRadius: 'var(--radius-md)' }} />
+                          </div>
+                          <input className="input" placeholder="Significado / descrição" value={lvl.description || ''} onChange={e => updateLevel(ti, li, { description: e.target.value })} style={{ marginTop: '0.375rem', fontSize: '0.8125rem' }} />
+                          <input className="input" placeholder="Mensagem motivacional ao subir" value={lvl.motivation || ''} onChange={e => updateLevel(ti, li, { motivation: e.target.value })} style={{ marginTop: '0.25rem', fontSize: '0.8125rem' }} />
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+
                   <div style={{ marginTop: '1rem' }}>
-                    <label className="label">Tema</label>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: '0.625rem', marginTop: '0.5rem' }}>
+                    <label className="label">Adicionar novo tema</label>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: '0.5rem' }}>
                       {(Object.keys(LOYALTY_PRESETS) as Array<keyof typeof LOYALTY_PRESETS>).map(key => {
                         const preset = LOYALTY_PRESETS[key];
-                        const active = loyalty.theme === key;
+                        const exists = themes.some(t => t.id === key);
                         return (
                           <button
                             key={key}
                             type="button"
-                            onClick={() => applyPreset(key)}
+                            onClick={() => addThemeFromPreset(key)}
+                            disabled={exists}
                             style={{
-                              background: active ? 'var(--primary-gradient)' : 'white',
-                              color: active ? 'white' : 'var(--text-primary)',
-                              border: `2px solid ${active ? 'transparent' : 'var(--sand)'}`,
+                              background: 'white',
+                              border: `2px solid var(--sand)`,
                               borderRadius: 'var(--radius-lg)',
-                              padding: '0.875rem 0.75rem',
-                              cursor: 'pointer',
+                              padding: '0.75rem',
+                              cursor: exists ? 'not-allowed' : 'pointer',
+                              opacity: exists ? 0.4 : 1,
                               textAlign: 'left',
-                              transition: 'all var(--transition-fast)',
                             }}
                           >
-                            <div style={{ fontSize: '1.5rem' }}>{preset.icon}</div>
-                            <div style={{ fontWeight: 700, marginTop: '0.25rem', fontSize: '0.9375rem' }}>{preset.label}</div>
-                            <div style={{ fontSize: '0.75rem', opacity: 0.8, marginTop: '0.125rem', lineHeight: 1.3 }}>{preset.description}</div>
+                            <div style={{ fontSize: '1.25rem' }}>{preset.icon}</div>
+                            <div style={{ fontWeight: 700, marginTop: '0.25rem', fontSize: '0.875rem' }}>{preset.label}</div>
+                            <div style={{ fontSize: '0.6875rem', opacity: 0.8, marginTop: '0.125rem', lineHeight: 1.3 }}>{exists ? 'Já adicionado' : preset.description}</div>
                           </button>
                         );
                       })}
                       <button
                         type="button"
-                        onClick={() => applyPreset('custom')}
-                        style={{
-                          background: loyalty.theme === 'custom' ? 'var(--primary-gradient)' : 'white',
-                          color: loyalty.theme === 'custom' ? 'white' : 'var(--text-primary)',
-                          border: `2px solid ${loyalty.theme === 'custom' ? 'transparent' : 'var(--sand)'}`,
-                          borderRadius: 'var(--radius-lg)',
-                          padding: '0.875rem 0.75rem',
-                          cursor: 'pointer',
-                          textAlign: 'left',
-                        }}
+                        onClick={() => addThemeFromPreset('custom')}
+                        style={{ background: 'white', border: '2px dashed var(--sand)', borderRadius: 'var(--radius-lg)', padding: '0.75rem', cursor: 'pointer', textAlign: 'left' }}
                       >
-                        <div style={{ fontSize: '1.5rem' }}>🌱</div>
-                        <div style={{ fontWeight: 700, marginTop: '0.25rem', fontSize: '0.9375rem' }}>Personalizado</div>
-                        <div style={{ fontSize: '0.75rem', opacity: 0.8, marginTop: '0.125rem' }}>Cria os teus próprios níveis</div>
+                        <div style={{ fontSize: '1.25rem' }}>🌱</div>
+                        <div style={{ fontWeight: 700, marginTop: '0.25rem', fontSize: '0.875rem' }}>Personalizado</div>
+                        <div style={{ fontSize: '0.6875rem', opacity: 0.8 }}>Cria os teus próprios níveis</div>
                       </button>
                     </div>
-                    <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
-                      Escolher um preset substitui os níveis atuais com os defaults desse tema. Podes editar tudo depois.
-                    </p>
-                  </div>
-
-                  <div style={{ marginTop: '1.5rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.625rem' }}>
-                      <h4 style={{ margin: 0, fontFamily: 'var(--font-body)', fontSize: '1rem' }}><Trophy size={16} style={{ display: 'inline', marginRight: 6 }} /> Níveis ({loyalty.levels.length})</h4>
-                      <button type="button" className="btn btn-sm btn-secondary" onClick={addLevel}><Plus size={14} /> Adicionar nível</button>
-                    </div>
-                    {loyalty.levels.length === 0 && (
-                      <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Sem níveis. Escolhe um preset acima ou adiciona à mão.</p>
-                    )}
-                    {loyalty.levels.map((lvl, i) => (
-                      <div key={i} style={{ background: 'white', border: '1px solid var(--sand)', borderRadius: 'var(--radius-lg)', padding: '0.875rem 1rem', marginBottom: '0.5rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', marginBottom: '0.5rem' }}>
-                          <span style={{ width: 28, height: 28, borderRadius: '50%', background: lvl.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.875rem', flexShrink: 0, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.1)' }}>{lvl.icon || ''}</span>
-                          <strong style={{ flex: 1 }}>Nível {i + 1}</strong>
-                          <button type="button" className="btn btn-sm btn-secondary" onClick={() => removeLevel(i)} style={{ color: 'var(--error)' }}><X size={14} /></button>
-                        </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 100px 80px', gap: '0.5rem' }}>
-                          <input className="input" placeholder="Nome" value={lvl.name} onChange={e => updateLevel(i, { name: e.target.value })} />
-                          <input className="input" placeholder="Ícone (emoji)" value={lvl.icon || ''} onChange={e => updateLevel(i, { icon: e.target.value })} />
-                          <input className="input" type="number" placeholder="Aulas" value={lvl.threshold} onChange={e => updateLevel(i, { threshold: Number(e.target.value) || 0 })} title="Presenças necessárias" />
-                          <input type="color" value={lvl.color} onChange={e => updateLevel(i, { color: e.target.value })} style={{ width: '100%', height: 38, border: 'none', cursor: 'pointer', borderRadius: 'var(--radius-md)' }} />
-                        </div>
-                        <input className="input" placeholder="Descrição (curta)" value={lvl.description || ''} onChange={e => updateLevel(i, { description: e.target.value })} style={{ marginTop: '0.5rem' }} />
-                        <input className="input" placeholder="Mensagem motivacional ao subir" value={lvl.motivation || ''} onChange={e => updateLevel(i, { motivation: e.target.value })} style={{ marginTop: '0.375rem' }} />
-                      </div>
-                    ))}
                   </div>
                 </>
               )}

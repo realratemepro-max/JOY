@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { collection, getDocs, doc, setDoc, deleteDoc, query, orderBy, where, addDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
-import { Testimonial, SessionRating } from '../../types';
-import { Plus, Edit2, Trash2, Save, X, Loader, Star, Clock, Check, XIcon } from 'lucide-react';
+import { Testimonial, SessionRating, Professor, Location, TestimonialOrigin } from '../../types';
+import { Plus, Edit2, Trash2, Save, X, Loader, Star, Clock, Check, XIcon, MapPin, User as UserIcon, Tag as TagIcon } from 'lucide-react';
 import { ImageUpload } from '../../components/ImageUpload';
 
 type Tab = 'all' | 'pending';
@@ -11,6 +11,8 @@ export function AdminTestimonials() {
   const [tab, setTab] = useState<Tab>('all');
   const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
   const [pending, setPending] = useState<SessionRating[]>([]);
+  const [professors, setProfessors] = useState<Professor[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<string | null>(null);
   const [editData, setEditData] = useState<any>(null);
@@ -21,34 +23,87 @@ export function AdminTestimonials() {
 
   const loadAll = async () => {
     setLoading(true);
-    try {
-      const [testSnap, pendSnap] = await Promise.all([
-        getDocs(query(collection(db, 'testimonials'), orderBy('order'))),
-        getDocs(query(collection(db, 'sessionRatings'), where('status', '==', 'pending'), orderBy('createdAt', 'desc'))),
-      ]);
-      setTestimonials(testSnap.docs.map(d => ({ id: d.id, ...d.data(), createdAt: d.data().createdAt?.toDate() } as Testimonial)));
-      setPending(pendSnap.docs.map(d => {
+    // Each query independent — one failing must not block the others.
+    const [testRes, pendRes, profsRes, locsRes] = await Promise.allSettled([
+      getDocs(query(collection(db, 'testimonials'), orderBy('order'))),
+      getDocs(query(collection(db, 'sessionRatings'), where('status', '==', 'pending'), orderBy('createdAt', 'desc'))),
+      getDocs(query(collection(db, 'professors'), orderBy('name'))),
+      getDocs(query(collection(db, 'locations'), orderBy('order'))),
+    ]);
+
+    if (testRes.status === 'fulfilled') {
+      setTestimonials(testRes.value.docs.map(d => ({ id: d.id, ...d.data(), createdAt: d.data().createdAt?.toDate() } as Testimonial)));
+    } else { console.error('testimonials load failed', testRes.reason); }
+
+    if (pendRes.status === 'fulfilled') {
+      setPending(pendRes.value.docs.map(d => {
         const data = d.data();
         return { id: d.id, ...data, createdAt: data.createdAt?.toDate(), sessionDate: data.sessionDate?.toDate() } as SessionRating;
       }));
-    } catch (err) { console.error(err); }
-    finally { setLoading(false); }
+    } else { console.warn('sessionRatings pending load failed (likely missing index)', pendRes.reason); }
+
+    if (profsRes.status === 'fulfilled') {
+      setProfessors(profsRes.value.docs.map(d => ({ id: d.id, ...d.data() } as Professor)));
+    } else { console.error('professors load failed', profsRes.reason); }
+
+    if (locsRes.status === 'fulfilled') {
+      setLocations(locsRes.value.docs.map(d => ({ id: d.id, ...d.data() } as Location)));
+    } else { console.error('locations load failed', locsRes.reason); }
+
+    setLoading(false);
   };
 
   // ─── Testimonial CRUD ───────────────────────────────────────────────────────
   const startNew = () => {
     setEditing('new');
-    setEditData({ name: '', text: '', rating: 5, photo: '', isActive: true, order: testimonials.length });
+    setEditData({
+      name: '', text: '', rating: 5, photo: '',
+      isActive: true, order: testimonials.length,
+      taggedProfessorIds: [],
+      taggedLocationIds: [],
+      origin: 'manual' as TestimonialOrigin,
+      status: 'approved',
+      featured: false,
+    });
   };
-  const startEdit = (t: Testimonial) => { setEditing(t.id); setEditData({ ...t }); };
+  const startEdit = (t: Testimonial) => {
+    setEditing(t.id);
+    setEditData({
+      ...t,
+      taggedProfessorIds: t.taggedProfessorIds || [],
+      taggedLocationIds: t.taggedLocationIds || [],
+      origin: t.origin || 'manual',
+      status: t.status || 'approved',
+    });
+  };
   const cancelEdit = () => { setEditing(null); setEditData(null); };
+
+  const toggleProfTag = (id: string) => {
+    const list: string[] = editData.taggedProfessorIds || [];
+    setEditData({ ...editData, taggedProfessorIds: list.includes(id) ? list.filter(x => x !== id) : [...list, id] });
+  };
+  const toggleLocTag = (id: string) => {
+    const list: string[] = editData.taggedLocationIds || [];
+    setEditData({ ...editData, taggedLocationIds: list.includes(id) ? list.filter(x => x !== id) : [...list, id] });
+  };
 
   const handleSave = async () => {
     if (!editData) return;
     try {
       setSaving(true);
       const id = editing === 'new' ? doc(collection(db, 'testimonials')).id : editing!;
-      const data = { ...editData, rating: Number(editData.rating), order: Number(editData.order), createdAt: editing === 'new' ? new Date() : editData.createdAt };
+      const data: any = {
+        ...editData,
+        rating: Number(editData.rating),
+        order: Number(editData.order),
+        createdAt: editing === 'new' ? new Date() : editData.createdAt,
+        updatedAt: new Date(),
+        taggedProfessorIds: editData.taggedProfessorIds || [],
+        taggedLocationIds: editData.taggedLocationIds || [],
+        origin: editData.origin || 'manual',
+        status: editData.status || 'approved',
+        featured: !!editData.featured,
+      };
       delete data.id;
       await setDoc(doc(db, 'testimonials', id), data);
       await loadAll();
@@ -150,14 +205,106 @@ export function AdminTestimonials() {
                 </div>
               </div>
               <div className="form-group"><label className="label">Texto</label><textarea className="input textarea" rows={4} value={editData.text} onChange={e => setEditData({ ...editData, text: e.target.value })} placeholder="O que o aluno disse..." /></div>
+
+              {/* Tags */}
+              <div className="form-group">
+                <label className="label"><TagIcon size={14} style={{ display: 'inline', marginRight: 4 }} /> Tags — Professores</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem', marginTop: '0.25rem' }}>
+                  {professors.length === 0 && <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>Sem professores criados ainda.</span>}
+                  {professors.map(p => {
+                    const sel = (editData.taggedProfessorIds || []).includes(p.id);
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => toggleProfTag(p.id)}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
+                          padding: '0.3rem 0.7rem',
+                          borderRadius: 999,
+                          background: sel ? 'rgba(124,154,114,0.15)' : 'white',
+                          border: `1.5px solid ${sel ? 'var(--primary)' : 'var(--sand)'}`,
+                          color: sel ? 'var(--primary-dark)' : 'var(--text-secondary)',
+                          fontSize: '0.8125rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          fontFamily: 'inherit',
+                        }}
+                      >
+                        <UserIcon size={12} /> {p.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem', display: 'block' }}>
+                  Aparece no card destes professores no site.
+                </span>
+              </div>
+
+              <div className="form-group">
+                <label className="label"><TagIcon size={14} style={{ display: 'inline', marginRight: 4 }} /> Tags — Espaços</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.375rem', marginTop: '0.25rem' }}>
+                  {locations.map(l => {
+                    const sel = (editData.taggedLocationIds || []).includes(l.id);
+                    return (
+                      <button
+                        key={l.id}
+                        type="button"
+                        onClick={() => toggleLocTag(l.id)}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '0.375rem',
+                          padding: '0.3rem 0.7rem',
+                          borderRadius: 999,
+                          background: sel ? 'rgba(193,127,89,0.12)' : 'white',
+                          border: `1.5px solid ${sel ? 'var(--accent)' : 'var(--sand)'}`,
+                          color: sel ? 'var(--accent)' : 'var(--text-secondary)',
+                          fontSize: '0.8125rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          fontFamily: 'inherit',
+                        }}
+                      >
+                        <MapPin size={12} /> {l.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="edit-grid">
+                <div className="form-group">
+                  <label className="label">Origem</label>
+                  <select className="input" value={editData.origin || 'manual'} onChange={e => setEditData({ ...editData, origin: e.target.value as TestimonialOrigin })}>
+                    <option value="manual">Manual (admin)</option>
+                    <option value="client_submitted">Submetido pelo cliente</option>
+                    <option value="google">Importado do Google</option>
+                    <option value="imported">Outro</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="label">Estado</label>
+                  <select className="input" value={editData.status || 'approved'} onChange={e => setEditData({ ...editData, status: e.target.value as any })}>
+                    <option value="approved">Aprovado (público)</option>
+                    <option value="pending">Pendente (oculto)</option>
+                    <option value="rejected">Rejeitado</option>
+                  </select>
+                </div>
+              </div>
+
               <div className="edit-grid">
                 <ImageUpload value={editData.photo || ''} onChange={url => setEditData({ ...editData, photo: url })} folder="testimonials" label="Foto" />
                 <div className="form-group"><label className="label">Ordem</label><input className="input" type="number" value={editData.order} onChange={e => setEditData({ ...editData, order: e.target.value })} /></div>
               </div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                <input type="checkbox" checked={editData.isActive} onChange={e => setEditData({ ...editData, isActive: e.target.checked })} />
-                Ativo (visível no site)
-              </label>
+              <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={editData.isActive} onChange={e => setEditData({ ...editData, isActive: e.target.checked })} />
+                  Ativo (visível no site)
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={!!editData.featured} onChange={e => setEditData({ ...editData, featured: e.target.checked })} />
+                  ⭐ Em destaque na landing
+                </label>
+              </div>
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
                 <button className="btn btn-primary" onClick={handleSave} disabled={saving || !editData.name || !editData.text}>
                   {saving ? <Loader size={18} style={{ animation: 'spin 1s linear infinite' }} /> : <><Save size={18} /> Guardar</>}

@@ -7,8 +7,10 @@ import { Session, SessionStudent, CancelReason } from '../../types';
 import {
   Calendar, CalendarDays, Clock, MapPin, Users, Check, X as XIcon, Loader,
   ListOrdered, UserPlus, Banknote, Search, Copy, CheckCheck, UserCheck, MoreVertical,
-  AlertTriangle, XCircle,
+  AlertTriangle, XCircle, CreditCard, AlertCircle, Mail,
 } from 'lucide-react';
+import { getFunctions } from 'firebase/functions';
+import { RequestStudentPaymentModal } from '../../components/RequestStudentPaymentModal';
 
 const DAY_NAMES_SHORT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const DAY_NAMES_FULL = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
@@ -68,6 +70,7 @@ export function ProfessorSessions() {
 
   // Cash payment modal
   const [cashModal, setCashModal] = useState<{ sessionId: string; studentIndex: number; studentName: string } | null>(null);
+  const [paymentRequestModal, setPaymentRequestModal] = useState<{ session: Session; student: any } | null>(null);
   const [cashAmount, setCashAmount] = useState('');
 
   // Calendar modal
@@ -398,9 +401,19 @@ export function ProfessorSessions() {
                             ) : (
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                                 {session.enrolledStudents.map((student, si) => {
+                                  const s = student as any;
                                   const isLoading = saving === session.id + student.userId;
                                   const isAttended = student.status === 'attended';
                                   const isAbsent = student.status === 'absent';
+                                  const isPaid = !!s.cashPayment || !!s.purchaseId || s.paymentStatus === 'paid';
+                                  const paymentPendingOnline = s.paymentStatus === 'pending' && (s.paymentMethod === 'mbway' || s.paymentMethod === 'multibanco');
+                                  const tryMarkAttended = () => {
+                                    if (!isPaid && !isAttended) {
+                                      alert(`${student.userName} ainda não pagou. Pede o pagamento primeiro.`);
+                                      return;
+                                    }
+                                    markAttendance(session, student.userId, isAttended ? 'enrolled' : 'attended');
+                                  };
                                   return (
                                     <div key={student.userId} style={{
                                       display: 'flex', alignItems: 'center', gap: '0.875rem',
@@ -428,9 +441,28 @@ export function ProfessorSessions() {
                                         {professorPermissions.canViewStudentContacts && (student as any).userEmail && (
                                           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(student as any).userEmail}</div>
                                         )}
-                                        {student.cashPayment && (
-                                          <div style={{ fontSize: '0.75rem', color: 'var(--success)', fontWeight: 600 }}><Banknote size={11} style={{ display: 'inline' }} /> {student.cashPayment.amount}€ em mão</div>
-                                        )}
+                                        <div style={{ display: 'flex', gap: '0.375rem', alignItems: 'center', marginTop: '0.125rem', flexWrap: 'wrap' }}>
+                                          {student.cashPayment && (
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.6875rem', color: '#065f46', background: '#d1fae5', padding: '0.1rem 0.4rem', borderRadius: 999, fontWeight: 600 }}>
+                                              <Banknote size={10} /> {student.cashPayment.amount}€ em mão
+                                            </span>
+                                          )}
+                                          {!student.cashPayment && s.purchaseId && (
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.6875rem', color: '#065f46', background: '#d1fae5', padding: '0.1rem 0.4rem', borderRadius: 999, fontWeight: 600 }}>
+                                              <Check size={10} /> Pago{s.paymentMethod ? ` · ${s.paymentMethod === 'mbway' ? 'MB Way' : 'Multibanco'}` : ''}
+                                            </span>
+                                          )}
+                                          {paymentPendingOnline && (
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.6875rem', color: '#92400e', background: '#fef3c7', padding: '0.1rem 0.4rem', borderRadius: 999, fontWeight: 600 }}>
+                                              <Clock size={10} /> {s.paymentMethod === 'mbway' ? 'MB Way pendente' : 'Multibanco pendente'}
+                                            </span>
+                                          )}
+                                          {!isPaid && !paymentPendingOnline && (
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.6875rem', color: '#991b1b', background: '#fee2e2', padding: '0.1rem 0.4rem', borderRadius: 999, fontWeight: 600 }}>
+                                              <AlertCircle size={10} /> Por pagar
+                                            </span>
+                                          )}
+                                        </div>
                                       </div>
 
                                       {/* Actions */}
@@ -442,16 +474,19 @@ export function ProfessorSessions() {
                                             <>
                                               {/* Main check-in button */}
                                               <button
-                                                onClick={() => markAttendance(session, student.userId, isAttended ? 'enrolled' : 'attended')}
+                                                onClick={tryMarkAttended}
+                                                disabled={!isPaid && !isAttended}
                                                 style={{
                                                   display: 'flex', alignItems: 'center', gap: '0.375rem',
                                                   padding: '0.4rem 0.875rem',
-                                                  background: isAttended ? 'rgba(124,154,114,0.15)' : 'var(--primary)',
-                                                  color: isAttended ? 'var(--success)' : 'white',
+                                                  background: isAttended ? 'rgba(124,154,114,0.15)' : (!isPaid ? 'rgba(0,0,0,0.06)' : 'var(--primary)'),
+                                                  color: isAttended ? 'var(--success)' : (!isPaid ? 'var(--text-muted)' : 'white'),
                                                   border: isAttended ? '1.5px solid rgba(124,154,114,0.35)' : 'none',
-                                                  borderRadius: 'var(--radius-md)', cursor: 'pointer', fontSize: '0.8125rem', fontWeight: 600,
+                                                  borderRadius: 'var(--radius-md)', cursor: !isPaid && !isAttended ? 'not-allowed' : 'pointer', fontSize: '0.8125rem', fontWeight: 600,
                                                   transition: 'all 0.15s',
+                                                  opacity: !isPaid && !isAttended ? 0.6 : 1,
                                                 }}
+                                                title={!isPaid && !isAttended ? 'Pede pagamento antes de marcar presença' : ''}
                                               >
                                                 <UserCheck size={14} />
                                                 {isAttended ? 'Check-in realizado' : 'Check-in'}
@@ -471,14 +506,37 @@ export function ProfessorSessions() {
                                               </button>
                                             </>
                                           )}
-                                          {/* Cash payment */}
-                                          {professorPermissions.canAcceptCashPayment && !student.cashPayment && (
+                                          {/* Request payment (MB Way / Multibanco / Cash) */}
+                                          {!isPaid && (professorPermissions.canRequestOnlinePayment || professorPermissions.canAcceptCashPayment) && (
                                             <button
-                                              onClick={() => { setCashModal({ sessionId: session.id, studentIndex: si, studentName: student.userName }); setCashAmount(''); }}
-                                              style={{ width: 30, height: 30, borderRadius: '50%', border: 'none', cursor: 'pointer', background: 'rgba(193,127,89,0.12)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                                              title="Pagamento em mão"
+                                              onClick={() => setPaymentRequestModal({
+                                                session,
+                                                student: { userId: s.userId, userName: s.userName, userEmail: s.userEmail, userPhone: s.userPhone },
+                                              })}
+                                              style={{ width: 30, height: 30, borderRadius: '50%', border: 'none', cursor: 'pointer', background: 'rgba(124,154,114,0.15)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                              title="Pedir pagamento (direto)"
                                             >
-                                              <Banknote size={14} />
+                                              <CreditCard size={14} />
+                                            </button>
+                                          )}
+                                          {/* Send payment link by email */}
+                                          {!isPaid && professorPermissions.canRequestOnlinePayment && (
+                                            <button
+                                              onClick={async () => {
+                                                if (!confirm(`Enviar link de pagamento por email para ${s.userName}?`)) return;
+                                                try {
+                                                  const fn = httpsCallable(getFunctions(undefined, 'europe-west1'), 'sendPaymentLink');
+                                                  const res: any = await fn({ sessionId: session.id, studentId: s.userId });
+                                                  if (res.data?.emailSent) alert(`Email enviado para ${s.userName}.`);
+                                                  else alert(`Email falhou: ${res.data?.emailError}\nLink:\n${res.data?.payUrl}`);
+                                                } catch (err: any) {
+                                                  alert(err?.message || 'Erro');
+                                                }
+                                              }}
+                                              style={{ width: 30, height: 30, borderRadius: '50%', border: 'none', cursor: 'pointer', background: 'rgba(193,127,89,0.12)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                              title="Enviar link de pagamento por email"
+                                            >
+                                              <Mail size={14} />
                                             </button>
                                           )}
                                           {/* More (opens student detail) */}
@@ -631,6 +689,19 @@ export function ProfessorSessions() {
           </div>
         );
       })()}
+
+      {/* Request Student Payment Modal */}
+      {paymentRequestModal && (
+        <RequestStudentPaymentModal
+          session={paymentRequestModal.session}
+          student={paymentRequestModal.student}
+          onClose={() => setPaymentRequestModal(null)}
+          allowMethods={[
+            ...(professorPermissions.canRequestOnlinePayment ? ['mbway', 'multibanco'] as const : []),
+            ...(professorPermissions.canAcceptCashPayment ? ['cash'] as const : []),
+          ]}
+        />
+      )}
 
       {/* Cash Payment Modal */}
       {cashModal && (

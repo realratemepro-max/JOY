@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { InstallAppPrompt } from './InstallAppPrompt';
+import { InstallAppButton } from './InstallAppButton';
 import {
   LayoutDashboard, Settings, Package, Users, CreditCard,
   MessageSquare, LogOut, Menu, X, ChevronRight, MapPin,
   CalendarDays, ClipboardList, UserCheck, Tag, ShoppingBag, Bell, CalendarPlus, Library, MessageCircle,
-  ChevronLeft, Gift, Share2,
+  ChevronLeft, Gift, Share2, Calculator,
 } from 'lucide-react';
 
 interface AdminLayoutProps {
@@ -31,6 +33,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     { path: '/admin/clients', icon: Users, label: 'Clientes' },
     { path: '/admin/purchases', icon: ShoppingBag, label: 'Compras' },
     { path: '/admin/payments', icon: CreditCard, label: 'Pagamentos' },
+    { path: '/admin/contabilidade', icon: Calculator, label: 'Contabilidade' },
     { path: '/admin/promocodes', icon: Tag, label: 'Códigos Promo' },
     { path: '/admin/gift-cards', icon: Gift, label: 'Vales Oferta' },
     { path: '/admin/referrals', icon: Share2, label: 'Referências' },
@@ -53,6 +56,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   };
 
   return (
+    <>
+    <InstallAppPrompt />
     <div className={`al-layout${collapsed ? ' al-collapsed' : ''}`}>
       <aside className={`al-sidebar${sidebarOpen ? ' open' : ''}`}>
         <div className="al-sidebar-header">
@@ -85,6 +90,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         </nav>
 
         <div className="al-sidebar-footer">
+          <InstallAppButton className="al-link" iconClassName="al-link-icon" labelClassName="al-link-label" label="Instalar app" />
           <Link to="/" className="al-link" target="_blank" title="Ver Site">
             <Settings size={18} className="al-link-icon" />
             <span className="al-link-label">Ver Site</span>
@@ -337,5 +343,6 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
       `}</style>
     </div>
+    </>
   );
 }

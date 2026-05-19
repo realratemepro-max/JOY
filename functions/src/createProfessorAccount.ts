@@ -9,8 +9,9 @@ export const createProfessorAccount = functions
     const callerDoc = await admin.firestore().collection('admins').doc(context.auth.uid).get();
     if (!callerDoc.exists) throw new functions.https.HttpsError('permission-denied', 'Not an admin');
 
-    const { email, professorId, professorName } = data as { email: string; professorId: string; professorName: string };
-    if (!email || !professorId) throw new functions.https.HttpsError('invalid-argument', 'email and professorId required');
+    const { email: rawEmail, professorId, professorName } = data as { email: string; professorId: string; professorName: string };
+    if (!rawEmail || !professorId) throw new functions.https.HttpsError('invalid-argument', 'email and professorId required');
+    const email = String(rawEmail).trim().toLowerCase();
 
     let uid: string;
 

@@ -9,8 +9,9 @@ export const generateProfessorResetLink = functions
     const callerDoc = await admin.firestore().collection('admins').doc(context.auth.uid).get();
     if (!callerDoc.exists) throw new functions.https.HttpsError('permission-denied', 'Not an admin');
 
-    const { email, professorName, sendEmail = false } = data as { email: string; professorName?: string; sendEmail?: boolean };
-    if (!email) throw new functions.https.HttpsError('invalid-argument', 'email required');
+    const { email: rawEmail, professorName, sendEmail = false } = data as { email: string; professorName?: string; sendEmail?: boolean };
+    if (!rawEmail) throw new functions.https.HttpsError('invalid-argument', 'email required');
+    const email = String(rawEmail).trim().toLowerCase();
 
     const resetLink = await admin.auth().generatePasswordResetLink(email);
 

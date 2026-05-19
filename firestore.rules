@@ -26,7 +26,21 @@ service cloud.firestore {
     // PUBLIC: Site content (read-only)
     // ============================================
     match /siteConfig/{docId} { allow read: if true; allow write: if isAdmin(); }
-    match /testimonials/{id} { allow read: if true; allow write: if isAdmin(); }
+    match /testimonials/{id} {
+      // Public read: only approved + active are visible to non-admins. Rules engine
+      // can't filter docs by status, so we keep read open and rely on UI to filter.
+      // Querying for pending docs is admin-only via separate query.
+      allow read: if true;
+      // Admin can write anything. Client can write their OWN testimonial doc
+      // (doc id MUST equal their uid) with status='pending'.
+      allow create, update: if isAdmin() || (
+        isAuthenticated() &&
+        id == request.auth.uid &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status == 'pending'
+      );
+      allow delete: if isAdmin() || (isAuthenticated() && id == request.auth.uid);
+    }
     match /locations/{id} { allow read: if true; allow write: if isAdmin(); }
     match /plans/{id} { allow read: if true; allow write: if isAdmin(); }
     match /professors/{id} { allow read: if true; allow write: if isAdmin(); }
@@ -108,6 +122,14 @@ service cloud.firestore {
     match /notificationLogs/{id} { allow read: if isAdmin(); allow write: if false; }
     match /pendingWhatsApp/{id} { allow read, write: if isAdmin(); }
     match /locationPayments/{id} { allow read, write: if isAdmin(); }
+    match /expenses/{id} { allow read, write: if isAdmin(); }
+    match /invoiceCounter/{id} { allow read, write: if isAdmin(); }
+
+    // Payment-link tokens — clients pay via /pay/{token} public page. All read/write
+    // goes through Cloud Functions (admin SDK), so we deny direct client access.
+    match /paymentTokens/{token} {
+      allow read, write: if isAdmin();
+    }
     match /locationMonthlyCosts/{id} {
       // Read: anyone authenticated (used by cloud function & admin UI; data is just rent figures)
       allow read: if isAuthenticated();

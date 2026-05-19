@@ -142,7 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (email: string, password: string) => {
     try {
       setError(null);
-      await signInWithEmailAndPassword(auth, email, password);
+      await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
     } catch (err: any) {
       setError(getErrorMessage(err.code));
       throw err;
@@ -152,12 +152,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const register = async (email: string, password: string, name: string, phone?: string, dateOfBirth?: string) => {
     try {
       setError(null);
-      const { user: newUser } = await createUserWithEmailAndPassword(auth, email, password);
+      const normalizedEmail = email.trim().toLowerCase();
+      const { user: newUser } = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
       await updateProfile(newUser, { displayName: name });
 
       // Create user document
       const userData: Omit<User, 'id'> = {
-        email,
+        email: normalizedEmail,
         name,
         role: 'client',
         phone: phone || undefined,
@@ -186,7 +187,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const resetPassword = async (email: string) => {
     try {
       setError(null);
-      await sendPasswordResetEmail(auth, email);
+      await sendPasswordResetEmail(auth, email.trim().toLowerCase());
     } catch (err: any) {
       setError(getErrorMessage(err.code));
       throw err;

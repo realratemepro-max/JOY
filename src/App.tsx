@@ -16,6 +16,7 @@ import { Checkout } from './pages/Checkout';
 import { PaymentSuccess } from './pages/PaymentSuccess';
 import { PaymentFailed } from './pages/PaymentFailed';
 import { PaymentMultibanco } from './pages/PaymentMultibanco';
+import { PayWithToken } from './pages/PayWithToken';
 import { Privacy } from './pages/Privacy';
 import { Terms } from './pages/Terms';
 
@@ -27,6 +28,7 @@ import { AdminPlans } from './pages/admin/AdminPlans';
 import { AdminServices } from './pages/admin/AdminServices';
 import { AdminClients } from './pages/admin/AdminClients';
 import { AdminPayments } from './pages/admin/AdminPayments';
+import { AdminAccounting } from './pages/admin/AdminAccounting';
 import { AdminTestimonials } from './pages/admin/AdminTestimonials';
 import { AdminSubscriptions } from './pages/admin/AdminSubscriptions';
 import { AdminSessions } from './pages/admin/AdminSessions';
@@ -160,6 +162,7 @@ function AppRoutes() {
       <Route path="/privacidade" element={<Privacy />} />
       <Route path="/termos" element={<Terms />} />
       <Route path="/payment-multibanco" element={<PaymentMultibanco />} />
+      <Route path="/pay/:token" element={<PayWithToken />} />
 
       {/* Firebase auth actions (password reset, email verify) */}
       <Route path="/auth-action" element={<AuthAction />} />
@@ -201,6 +204,7 @@ function AppRoutes() {
       <Route path="/admin/clients" element={<AdminRoute><AdminClients /></AdminRoute>} />
       <Route path="/admin/purchases" element={<AdminRoute><AdminPurchases /></AdminRoute>} />
       <Route path="/admin/payments" element={<AdminRoute><AdminPayments /></AdminRoute>} />
+      <Route path="/admin/contabilidade" element={<AdminRoute><AdminAccounting /></AdminRoute>} />
       <Route path="/admin/promocodes" element={<AdminRoute><AdminPromoCodes /></AdminRoute>} />
       <Route path="/admin/notifications" element={<AdminRoute><AdminNotifications /></AdminRoute>} />
       <Route path="/admin/site-settings" element={<AdminRoute><AdminSiteSettings /></AdminRoute>} />

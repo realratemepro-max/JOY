@@ -160,7 +160,11 @@ export function LandingPage() {
         id: d.id,
         ...d.data(),
         createdAt: d.data().createdAt?.toDate(),
-      } as Testimonial)));
+      } as Testimonial)).filter(t => {
+        // Only show approved (or legacy without status) — exclude pending/rejected
+        const s = (t as any).status;
+        return !s || s === 'approved';
+      }));
 
       setProfessors(profsSnap.docs.map(d => ({
         id: d.id,
@@ -312,6 +316,13 @@ export function LandingPage() {
                         <span className="team-specialty">{prof.landingSpecialty || prof.style}</span>
                       )}
                       <p className="team-card-name">{prof.name}</p>
+                      {prof.reviewCount && prof.reviewCount > 0 && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', justifyContent: 'center', marginTop: '0.25rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                          <Star size={11} fill="#f59e0b" color="#f59e0b" />
+                          <strong>{(prof.reviewAvg || 0).toFixed(1)}</strong>
+                          <span style={{ color: 'var(--text-muted)' }}>({prof.reviewCount})</span>
+                        </div>
+                      )}
                     </div>
                   </button>
                 );
@@ -357,6 +368,33 @@ export function LandingPage() {
                       ))}
                     </div>
                   )}
+
+                  {/* Testimonials tagged with this professor */}
+                  {(() => {
+                    const profTestimonials = testimonials.filter(t => (t.taggedProfessorIds || []).includes(prof.id)).slice(0, 3);
+                    if (profTestimonials.length === 0) return null;
+                    return (
+                      <div style={{ marginTop: '2rem', paddingTop: '1.5rem', borderTop: '1px solid var(--sand)' }}>
+                        <h4 style={{ fontFamily: 'var(--font-body)', fontSize: '0.9375rem', fontWeight: 600, marginBottom: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <Star size={14} fill="#f59e0b" color="#f59e0b" />
+                          Alunos sobre {prof.name.split(' ')[0]}
+                        </h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0.75rem' }}>
+                          {profTestimonials.map(t => (
+                            <div key={t.id} style={{ background: 'var(--beige)', borderRadius: 'var(--radius-lg)', padding: '0.875rem 1rem' }}>
+                              <div style={{ display: 'flex', gap: '0.125rem', marginBottom: '0.375rem' }}>
+                                {[...Array(5)].map((_, i) => (
+                                  <Star key={i} size={12} fill={i < t.rating ? '#f59e0b' : 'none'} color={i < t.rating ? '#f59e0b' : '#d1d5db'} />
+                                ))}
+                              </div>
+                              <p style={{ fontSize: '0.875rem', color: 'var(--text-primary)', margin: '0 0 0.5rem', fontStyle: 'italic', lineHeight: 1.5 }}>"{t.text.substring(0, 180)}{t.text.length > 180 ? '...' : ''}"</p>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>— {t.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })()}
@@ -536,12 +574,22 @@ export function LandingPage() {
                             </span>
                           </div>
                           <div className="schedule-cta">
-                            <Link
-                              to={user ? '/app/sessions' : `/login?next=${encodeURIComponent('/app/sessions')}`}
-                              className="btn btn-primary btn-sm"
-                            >
-                              Reservar
-                            </Link>
+                            {spotsLeft <= 0 ? (
+                              <Link
+                                to={user ? `/app/sessions?join=${session.id}` : `/login?next=${encodeURIComponent(`/app/sessions?join=${session.id}`)}`}
+                                className="btn btn-secondary btn-sm"
+                                title="Esgotado — entra na lista de espera para seres notificado quando vagar"
+                              >
+                                Lista de espera
+                              </Link>
+                            ) : (
+                              <Link
+                                to={user ? '/app/sessions' : `/login?next=${encodeURIComponent('/app/sessions')}`}
+                                className="btn btn-primary btn-sm"
+                              >
+                                Reservar
+                              </Link>
+                            )}
                           </div>
                         </div>
                       );
@@ -672,26 +720,44 @@ export function LandingPage() {
             <div className="divider" />
 
             <div className="testimonials-grid">
-              {testimonials.map(t => (
-                <div key={t.id} className="testimonial-card">
-                  <div className="testimonial-stars">
-                    {[...Array(5)].map((_, i) => (
-                      <Star key={i} size={16} fill={i < t.rating ? '#f59e0b' : 'none'} color={i < t.rating ? '#f59e0b' : '#d1d5db'} />
-                    ))}
-                  </div>
-                  <p className="testimonial-text">"{t.text}"</p>
-                  <div className="testimonial-author">
-                    {t.photo ? (
-                      <img src={t.photo} alt={t.name} className="testimonial-avatar" />
-                    ) : (
-                      <div className="testimonial-avatar-placeholder">
-                        {t.name.charAt(0)}
+              {testimonials.map(t => {
+                const taggedProfs = professors.filter(p => (t.taggedProfessorIds || []).includes(p.id));
+                const taggedLocs = locations.filter(l => (t.taggedLocationIds || []).includes(l.id));
+                return (
+                  <div key={t.id} className="testimonial-card">
+                    <div className="testimonial-stars">
+                      {[...Array(5)].map((_, i) => (
+                        <Star key={i} size={16} fill={i < t.rating ? '#f59e0b' : 'none'} color={i < t.rating ? '#f59e0b' : '#d1d5db'} />
+                      ))}
+                    </div>
+                    <p className="testimonial-text">"{t.text}"</p>
+                    <div className="testimonial-author">
+                      {t.photo ? (
+                        <img src={t.photo} alt={t.name} className="testimonial-avatar" />
+                      ) : (
+                        <div className="testimonial-avatar-placeholder">
+                          {t.name.charAt(0)}
+                        </div>
+                      )}
+                      <span className="testimonial-name">{t.name}</span>
+                    </div>
+                    {(taggedProfs.length > 0 || taggedLocs.length > 0) && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginTop: '0.625rem' }}>
+                        {taggedProfs.map(p => (
+                          <span key={p.id} style={{ fontSize: '0.6875rem', fontWeight: 600, color: 'var(--primary-dark)', background: 'rgba(124,154,114,0.12)', padding: '0.15rem 0.5rem', borderRadius: 999 }}>
+                            👤 {p.name.split(' ')[0]}
+                          </span>
+                        ))}
+                        {taggedLocs.map(l => (
+                          <span key={l.id} style={{ fontSize: '0.6875rem', fontWeight: 600, color: 'var(--accent)', background: 'rgba(193,127,89,0.10)', padding: '0.15rem 0.5rem', borderRadius: 999 }}>
+                            📍 {l.name}
+                          </span>
+                        ))}
                       </div>
                     )}
-                    <span className="testimonial-name">{t.name}</span>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </section>

@@ -5,8 +5,10 @@ import { Session, SessionStudent, Plan, Location, Professor, CancelReason, Credi
 import {
   Plus, Save, X, Loader, Calendar, MapPin, Clock, Check,
   XCircle, Minus, ChevronLeft, ChevronRight, Users, Edit2, Trash2, AlertTriangle, UserCheck, Video, Link,
-  UserPlus, Banknote, Search,
+  UserPlus, Banknote, Search, CreditCard, AlertCircle, Mail,
 } from 'lucide-react';
+import { RequestStudentPaymentModal } from '../../components/RequestStudentPaymentModal';
+import { getFunctions } from 'firebase/functions';
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '../../services/firebase';
 
@@ -93,6 +95,7 @@ export function AdminSessions() {
 
   // Cash payment modal
   const [cashModal, setCashModal] = useState<{ sessionId: string; studentIndex: number; studentName: string } | null>(null);
+  const [paymentRequestModal, setPaymentRequestModal] = useState<{ session: Session; student: any } | null>(null);
   const [cashAmount, setCashAmount] = useState('');
 
   const addExtraSlot = () => setNewSession(prev => ({
@@ -1078,44 +1081,94 @@ export function AdminSessions() {
                     {session.enrolledStudents.length === 0 && (
                       <div style={{ padding: '0.75rem 1rem', color: 'var(--text-muted)', fontSize: '0.875rem' }}>Sem alunos inscritos</div>
                     )}
-                    {session.enrolledStudents.map((student, si) => (
-                      <div key={si} className="student-row">
-                        <div className="student-avatar">{student.userName.charAt(0).toUpperCase()}</div>
-                        <span className="student-name">{student.userName}</span>
-                        <div className="attendance-btns">
-                          <button
-                            className={`att-btn ${student.status === 'attended' ? 'active-success' : ''}`}
-                            onClick={() => handleAttendance(session.id, si, 'attended')}
-                            title="Presente"
-                          ><Check size={14} /></button>
-                          <button
-                            className={`att-btn ${student.status === 'absent' ? 'active-error' : ''}`}
-                            onClick={() => handleAttendance(session.id, si, 'absent')}
-                            title="Faltou"
-                          ><XCircle size={14} /></button>
-                          <button
-                            className={`att-btn ${student.status === 'cancelled' ? 'active-muted' : ''}`}
-                            onClick={() => handleAttendance(session.id, si, 'cancelled')}
-                            title="Cancelou"
-                          ><Minus size={14} /></button>
-                          {student.cashPayment ? (
-                            <span title={`Pago em mão: ${student.cashPayment.amount}€`} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', color: 'var(--success)', fontWeight: 600, padding: '0 0.375rem' }}>
-                              <Banknote size={13} /> {student.cashPayment.amount}€
-                            </span>
-                          ) : (
+                    {session.enrolledStudents.map((student, si) => {
+                      const s = student as any;
+                      const isPaid = !!s.cashPayment || !!s.purchaseId || s.paymentStatus === 'paid';
+                      const paymentPendingOnline = s.paymentStatus === 'pending' && (s.paymentMethod === 'mbway' || s.paymentMethod === 'multibanco');
+                      const handleAttClick = (newStatus: 'attended' | 'absent' | 'cancelled') => {
+                        if (newStatus === 'attended' && !isPaid) {
+                          if (!confirm(`${student.userName} ainda não tem pagamento registado. Marcar presença mesmo assim (admin override)?`)) return;
+                        }
+                        handleAttendance(session.id, si, newStatus);
+                      };
+                      return (
+                        <div key={si} className="student-row">
+                          <div className="student-avatar">{student.userName.charAt(0).toUpperCase()}</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
+                            <span className="student-name">{student.userName}</span>
+                            <div style={{ display: 'flex', gap: '0.375rem', alignItems: 'center', marginTop: '0.125rem' }}>
+                              {s.cashPayment && (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.6875rem', color: '#065f46', background: '#d1fae5', padding: '0.1rem 0.4rem', borderRadius: 999, fontWeight: 600 }}>
+                                  <Banknote size={10} /> Pago em mão {s.cashPayment.amount}€
+                                </span>
+                              )}
+                              {!s.cashPayment && s.purchaseId && (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.6875rem', color: '#065f46', background: '#d1fae5', padding: '0.1rem 0.4rem', borderRadius: 999, fontWeight: 600 }}>
+                                  <Check size={10} /> Pago{s.paymentMethod ? ` · ${s.paymentMethod === 'mbway' ? 'MB Way' : 'Multibanco'}` : ''}
+                                </span>
+                              )}
+                              {paymentPendingOnline && (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.6875rem', color: '#92400e', background: '#fef3c7', padding: '0.1rem 0.4rem', borderRadius: 999, fontWeight: 600 }}>
+                                  <Clock size={10} /> {s.paymentMethod === 'mbway' ? 'MB Way pendente' : 'Multibanco pendente'}
+                                </span>
+                              )}
+                              {!isPaid && !paymentPendingOnline && (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.6875rem', color: '#991b1b', background: '#fee2e2', padding: '0.1rem 0.4rem', borderRadius: 999, fontWeight: 600 }}>
+                                  <AlertCircle size={10} /> Por pagar
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="attendance-btns">
                             <button
-                              className="att-btn"
-                              onClick={() => { setCashModal({ sessionId: session.id, studentIndex: si, studentName: student.userName }); setCashAmount(''); }}
-                              title="Registar pagamento em mão"
-                              style={{ color: 'var(--accent)' }}
-                            ><Banknote size={14} /></button>
-                          )}
+                              className={`att-btn ${student.status === 'attended' ? 'active-success' : ''}`}
+                              onClick={() => handleAttClick('attended')}
+                              title={isPaid ? 'Presente' : 'Presente (admin override — aluno por pagar)'}
+                              style={!isPaid ? { opacity: 0.6 } : undefined}
+                            ><Check size={14} /></button>
+                            <button
+                              className={`att-btn ${student.status === 'absent' ? 'active-error' : ''}`}
+                              onClick={() => handleAttClick('absent')}
+                              title="Faltou"
+                            ><XCircle size={14} /></button>
+                            <button
+                              className={`att-btn ${student.status === 'cancelled' ? 'active-muted' : ''}`}
+                              onClick={() => handleAttClick('cancelled')}
+                              title="Cancelou"
+                            ><Minus size={14} /></button>
+                            {!isPaid && (
+                              <button
+                                className="att-btn"
+                                onClick={() => setPaymentRequestModal({ session, student: { userId: s.userId, userName: s.userName, userEmail: s.userEmail, userPhone: s.userPhone } })}
+                                title="Pedir pagamento (MB Way / Multibanco / Numerário)"
+                                style={{ color: 'var(--primary)' }}
+                              ><CreditCard size={14} /></button>
+                            )}
+                            {!isPaid && (
+                              <button
+                                className="att-btn"
+                                onClick={async () => {
+                                  if (!confirm(`Enviar link de pagamento por email para ${s.userName}?`)) return;
+                                  try {
+                                    const fn = httpsCallable(getFunctions(undefined, 'europe-west1'), 'sendPaymentLink');
+                                    const res: any = await fn({ sessionId: session.id, studentId: s.userId });
+                                    if (res.data?.emailSent) alert(`Email enviado para o aluno.`);
+                                    else alert(`Token criado mas email falhou: ${res.data?.emailError}\n\nLink (copia e envia manualmente):\n${res.data?.payUrl}`);
+                                  } catch (err: any) {
+                                    alert(err?.message || 'Erro ao enviar link');
+                                  }
+                                }}
+                                title="Enviar link de pagamento por email (cliente escolhe método)"
+                                style={{ color: 'var(--accent)' }}
+                              ><Mail size={14} /></button>
+                            )}
+                          </div>
+                          <span className="att-label" style={{ color: statusColor(student.status) }}>
+                            {student.status === 'attended' ? 'Presente' : student.status === 'absent' ? 'Faltou' : student.status === 'cancelled' ? 'Cancelou' : 'Inscrito'}
+                          </span>
                         </div>
-                        <span className="att-label" style={{ color: statusColor(student.status) }}>
-                          {student.status === 'attended' ? 'Presente' : student.status === 'absent' ? 'Faltou' : student.status === 'cancelled' ? 'Cancelou' : 'Inscrito'}
-                        </span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   {/* Waitlist */}
@@ -1356,6 +1409,16 @@ export function AdminSessions() {
           </div>
         );
       })()}
+
+      {/* Request Student Payment Modal */}
+      {paymentRequestModal && (
+        <RequestStudentPaymentModal
+          session={paymentRequestModal.session}
+          student={paymentRequestModal.student}
+          onClose={() => setPaymentRequestModal(null)}
+          onSuccess={() => { /* live listener picks up the update */ }}
+        />
+      )}
 
       {/* Cash Payment Modal */}
       {cashModal && (

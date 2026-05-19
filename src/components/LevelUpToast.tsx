@@ -4,7 +4,7 @@ import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { useAuth } from '../context/AuthContext';
 import { LoyaltyConfig, LoyaltyLevel } from '../types';
-import { getCurrentLevel } from '../services/loyaltyPresets';
+import { computeJourney, normaliseLoyaltyConfig } from '../services/loyaltyPresets';
 import { Trophy, X } from 'lucide-react';
 
 /**
@@ -27,19 +27,20 @@ export function LevelUpToast() {
         ]);
         if (cancelled) return;
         if (!userDoc.exists() || !mainCfg.exists()) return;
-        const loyalty = mainCfg.data().loyalty as LoyaltyConfig | undefined;
-        if (!loyalty?.enabled || !loyalty.levels?.length) return;
+        const raw = mainCfg.data().loyalty as LoyaltyConfig | undefined;
+        const loyalty = normaliseLoyaltyConfig(raw);
+        if (!loyalty.enabled || !(loyalty.themes || []).length) return;
 
         const totalAttendances = userDoc.data()?.totalAttendances || 0;
         const lastSeen = userDoc.data()?.lastSeenLoyaltyThreshold ?? -1;
-        const { current } = getCurrentLevel(totalAttendances, loyalty.levels);
-        if (!current) return;
+        const { currentLevel } = computeJourney(totalAttendances, loyalty.themes || []);
+        if (!currentLevel) return;
 
-        if (current.threshold > lastSeen) {
-          setShown(current);
+        if (currentLevel.threshold > lastSeen) {
+          setShown(currentLevel);
           // Mark as seen
           try {
-            await updateDoc(doc(db, 'users', user.uid), { lastSeenLoyaltyThreshold: current.threshold });
+            await updateDoc(doc(db, 'users', user.uid), { lastSeenLoyaltyThreshold: currentLevel.threshold });
           } catch (e) { /* non-blocking */ }
         }
       } catch (e) { console.warn('LevelUpToast check failed', e); }

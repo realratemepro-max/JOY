@@ -30,11 +30,12 @@ export const createMultibancoPayment = functions.region('europe-west1').https.on
     const API_KEY = config.paymentApiKey || process.env.EUPAGO_CLIENT_ID || functions.config().eupago?.api_key;
     const BASE_URL = config.paymentApiBaseUrl || 'https://clientes.eupago.pt';
 
-    const { userId, amount, customerEmail, planId, planName, type, sessionId, attendanceMode } = req.body;
+    const { userId, amount, customerEmail: rawCustomerEmail, planId, planName, type, sessionId, attendanceMode, startMode, nif, consumidorFinal } = req.body;
 
-    if (!userId || !amount || !customerEmail || !planId) {
+    if (!userId || !amount || !rawCustomerEmail || !planId) {
       res.status(400).json({ error: 'Campos obrigatórios: userId, amount, customerEmail, planId' }); return;
     }
+    const customerEmail = String(rawCustomerEmail).trim().toLowerCase();
     if (parseFloat(amount) < 1.0) {
       res.status(400).json({ error: 'Valor mínimo: €1.00' }); return;
     }
@@ -53,6 +54,10 @@ export const createMultibancoPayment = functions.region('europe-west1').https.on
       type: type || 'plan_subscription',
       amount: parseFloat(amount), method: 'Multibanco', status: 'Pending', identifier,
       ...(sessionId ? { sessionId, attendanceMode: attendanceMode || 'presencial' } : {}),
+      startMode: startMode === 'first_class' ? 'first_class' : 'immediate',
+      nif: nif || '',
+      consumidorFinal: !!consumidorFinal,
+      invoiceStatus: 'pending',
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });

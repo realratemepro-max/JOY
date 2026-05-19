@@ -4,19 +4,24 @@ import * as admin from 'firebase-admin';
 export const createClientAccount = functions
   .region('europe-west1')
   .https.onCall(async (data, context) => {
-    // Verify admin caller
+    // Verify admin caller (admins live in /admins/{uid}, same as rules & other functions)
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Não autenticado.');
-    const callerDoc = await admin.firestore().collection('users').doc(context.auth.uid).get();
-    if (callerDoc.data()?.role !== 'admin') {
+    const adminDoc = await admin.firestore().collection('admins').doc(context.auth.uid).get();
+    if (!adminDoc.exists) {
       throw new functions.https.HttpsError('permission-denied', 'Apenas administradores podem criar contas.');
     }
 
-    const { name, email, phone } = data as { name: string; email: string; phone?: string };
-    if (!name || !email) throw new functions.https.HttpsError('invalid-argument', 'Nome e email são obrigatórios.');
+    const { name, email: rawEmail, phone } = data as { name: string; email: string; phone?: string };
+    if (!name || !rawEmail) throw new functions.https.HttpsError('invalid-argument', 'Nome e email são obrigatórios.');
+    const email = String(rawEmail).trim().toLowerCase();
 
     const db = admin.firestore();
-    const configSnap = await db.collection('siteConfig').doc('main').get();
-    const config = configSnap.data() || {};
+    const [mainSnap, notifSnap] = await Promise.all([
+      db.collection('siteConfig').doc('main').get(),
+      db.collection('siteConfig').doc('notifications').get(),
+    ]);
+    // Email credentials live in siteConfig/notifications (where the rest of the system reads them)
+    const config = { ...(mainSnap.data() || {}), ...(notifSnap.data() || {}) };
     const siteName: string = config.siteName || 'JOY';
 
     let uid: string;
@@ -46,6 +51,26 @@ export const createClientAccount = functions
       });
     } else {
       await userRef.update({ name, phone: phone || '', updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+    }
+
+    // Link any orphan purchases (paid as guest, userId differs) to this user's uid
+    try {
+      const orphanPurchases = await db.collection('purchases').where('userEmail', '==', email).get();
+      let linked = 0;
+      const batch = db.batch();
+      orphanPurchases.docs.forEach(d => {
+        const data = d.data();
+        if (!data.userId || data.userId !== uid) {
+          batch.update(d.ref, { userId: uid, updatedAt: admin.firestore.FieldValue.serverTimestamp() });
+          linked++;
+        }
+      });
+      if (linked > 0) {
+        await batch.commit();
+        console.log(`🔗 Linked ${linked} orphan purchase(s) to new client uid ${uid} (${email})`);
+      }
+    } catch (e) {
+      console.error('Failed to link orphan purchases:', e);
     }
 
     // Generate password reset / setup link
@@ -80,32 +105,52 @@ export const createClientAccount = functions
       </div>
     `;
 
-    if (config.resendApiKey) {
-      const fetch = require('node-fetch');
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${config.resendApiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          from: config.resendFromEmail || `noreply@joaquimyoga.pt`,
-          to: email,
-          subject,
-          html,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.text();
-        throw new functions.https.HttpsError('internal', `Erro ao enviar email: ${err}`);
+    let emailSent = false;
+    let emailError: string | null = null;
+    const fromName: string = config.fromName || siteName;
+    const fromEmail: string = config.fromEmail || config.emailFrom || config.resendFromEmail || 'noreply@joaquimyoga.pt';
+
+    try {
+      if (config.emailProvider === 'resend' && config.resendApiKey) {
+        const axios = require('axios');
+        await axios.post('https://api.resend.com/emails', {
+          from: `${fromName} <${fromEmail}>`, to: email, subject, html,
+        }, { headers: { Authorization: `Bearer ${config.resendApiKey}`, 'Content-Type': 'application/json' } });
+        emailSent = true;
+        console.log('✅ Client invite email sent via Resend to:', email);
+      } else if (config.emailProvider === 'gmail' && config.gmailAppPassword && config.emailFrom) {
+        const nodemailer = require('nodemailer');
+        const transporter = nodemailer.createTransport({
+          service: 'gmail',
+          auth: { user: config.emailFrom, pass: config.gmailAppPassword },
+        });
+        await transporter.sendMail({ from: `"${fromName}" <${config.emailFrom}>`, to: email, subject, html });
+        emailSent = true;
+        console.log('✅ Client invite email sent via Gmail to:', email);
+      } else {
+        emailError = 'Nenhum provedor de email configurado (Gmail App Password ou Resend API key)';
+        console.warn('⚠️', emailError);
       }
-    } else if (config.emailProvider === 'gmail' && config.gmailAppPassword) {
-      const nodemailer = require('nodemailer');
-      const transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: { user: config.emailFrom, pass: config.gmailAppPassword },
-      });
-      await transporter.sendMail({ from: `"${siteName}" <${config.emailFrom}>`, to: email, subject, html });
-    } else {
-      throw new functions.https.HttpsError('failed-precondition', 'Nenhum serviço de email configurado.');
+    } catch (err: any) {
+      emailError = err?.response?.data?.message || err?.message || 'Erro desconhecido';
+      console.error('❌ Client invite email failed:', emailError);
     }
 
-    return { uid, isNewUser };
+    // Log to notificationLogs so it appears in the client's Comunicações tab
+    try {
+      await db.collection('notificationLogs').add({
+        trigger: 'client_invite',
+        recipientEmail: email,
+        recipientName: name || null,
+        channels: [emailSent ? 'email:ok' : `email:failed:${(emailError || 'no provider').substring(0, 50)}`],
+        message: emailSent
+          ? `Convite enviado para ${email} (${isNewUser ? 'conta nova' : 'conta já existia'})`
+          : `Convite gerado mas email falhou: ${emailError || 'sem provedor'}`,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    } catch (logErr) {
+      console.error('Failed to log client_invite notification:', logErr);
+    }
+
+    return { uid, isNewUser, resetLink, emailSent, emailError };
   });

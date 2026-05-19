@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { PushPermissionPrompt } from './PushPermissionPrompt';
+import { InstallAppPrompt } from './InstallAppPrompt';
+import { InstallAppButton } from './InstallAppButton';
 import {
   LayoutDashboard, Calendar, MessageCircle, TrendingUp,
   LogOut, Menu, X, ChevronRight, UserCircle, AlertCircle, ChevronLeft,
@@ -43,6 +45,7 @@ export function ProfessorLayout({ children }: ProfessorLayoutProps) {
   return (
     <>
     <PushPermissionPrompt />
+    <InstallAppPrompt />
     <div className={`pl-layout${collapsed ? ' pl-collapsed' : ''}`}>
       <aside className={`pl-sidebar${sidebarOpen ? ' open' : ''}`}>
         <div className="pl-sidebar-header">
@@ -103,6 +106,7 @@ export function ProfessorLayout({ children }: ProfessorLayoutProps) {
         </nav>
 
         <div className="pl-sidebar-footer">
+          <InstallAppButton className="pl-link" iconClassName="pl-link-icon" labelClassName="pl-link-label" label="Instalar app" />
           <button className="pl-link pl-logout" onClick={handleLogout} title="Sair">
             <LogOut size={18} className="pl-link-icon" />
             <span className="pl-link-label">Sair</span>

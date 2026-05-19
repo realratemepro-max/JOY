@@ -252,8 +252,33 @@ async function handlePaidPayment(userId: string, paymentData: any, paymentId: st
     // EVENT BOOKING
     if (type === 'event_booking') {
       console.log('🎫 Event booking paid:', paymentId);
+      // Even for events, mark token as paid if linked
+      if (paymentData.paymentTokenId) {
+        try {
+          await db.collection('paymentTokens').doc(paymentData.paymentTokenId).update({
+            status: 'paid',
+            paidVia: paymentData.method === 'MBWay' ? 'mbway' : 'multibanco',
+            paidAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        } catch (e) { console.error('Failed to mark token paid (event):', e); }
+      }
       return;
     }
+
+    // Helper to mark linked token as paid
+    const markTokenPaid = async () => {
+      if (!paymentData.paymentTokenId) return;
+      try {
+        await db.collection('paymentTokens').doc(paymentData.paymentTokenId).update({
+          status: 'paid',
+          paidVia: paymentData.method === 'MBWay' ? 'mbway' : 'multibanco',
+          paidAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        console.log('🔓 Token marked paid:', paymentData.paymentTokenId);
+      } catch (e) { console.error('Failed to mark token paid:', e); }
+    };
 
     // DROP-IN — create a 1-session purchase doc (uniform with plans), enroll if sessionId provided
     if (type === 'single_class' || type === 'dropin') {
@@ -300,6 +325,8 @@ async function handlePaidPayment(userId: string, paymentData: any, paymentId: st
         sessionsUsed: willEnroll ? 1 : 0,
         sessionsRemaining: willEnroll ? 0 : 1,
         paymentId,
+        nif: paymentData.nif || '',
+        consumidorFinal: !!paymentData.consumidorFinal,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
@@ -309,33 +336,43 @@ async function handlePaidPayment(userId: string, paymentData: any, paymentId: st
       if (targetSessionId) {
         try {
           const sessionRef = db.collection('sessions').doc(targetSessionId);
-          const sessionSnap = await sessionRef.get();
-          if (!sessionSnap.exists) {
-            console.error('❌ Drop-in target session not found:', targetSessionId);
-          } else {
-            const sessionData = sessionSnap.data()!;
-            const enrolled = (sessionData.enrolledStudents || []) as any[];
-            const alreadyEnrolled = enrolled.some(e => e.userId === userId);
-            if (alreadyEnrolled) {
-              console.log('ℹ️ User already enrolled in session:', targetSessionId);
-            } else {
-              const newStudent: any = {
+          await db.runTransaction(async tx => {
+            const snap = await tx.get(sessionRef);
+            if (!snap.exists) {
+              console.error('❌ Drop-in target session not found:', targetSessionId);
+              return;
+            }
+            const enrolled = (snap.data()?.enrolledStudents || []) as any[];
+            const idx = enrolled.findIndex(e => e.userId === userId);
+            const paymentMethod = paymentData.method === 'MBWay' ? 'mbway' : 'multibanco';
+            if (idx === -1) {
+              // Self-checkout flow: add new enrollment
+              enrolled.push({
                 userId, userName, status: 'enrolled',
                 attendanceMode: paymentData.attendanceMode || 'presencial',
                 paymentId,
                 purchaseId: purchaseRef.id,
-              };
-              await sessionRef.update({
-                enrolledStudents: [...enrolled, newStudent],
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                paymentStatus: 'paid',
+                paymentMethod,
               });
-              console.log('✅ User enrolled in session via drop-in:', targetSessionId);
+            } else {
+              // Admin-triggered flow: student was already added, just mark as paid
+              enrolled[idx] = {
+                ...enrolled[idx],
+                paymentId,
+                purchaseId: purchaseRef.id,
+                paymentStatus: 'paid',
+                paymentMethod,
+              };
             }
-          }
+            tx.update(sessionRef, { enrolledStudents: enrolled, updatedAt: new Date() });
+          });
+          console.log('✅ Drop-in linked to session:', targetSessionId);
         } catch (e) {
           console.error('❌ Failed to enroll user in session after drop-in payment:', e);
         }
       }
+      await markTokenPaid();
       return;
     }
 
@@ -368,6 +405,13 @@ async function handlePaidPayment(userId: string, paymentData: any, paymentId: st
     }
 
     const totalSessions = plan.sessionsTotal || Math.ceil((plan.sessionsPerWeek || 1) * 4.33);
+    const startMode: string = paymentData.startMode === 'first_class' ? 'first_class' : 'immediate';
+    const pendingStart = startMode === 'first_class';
+
+    // If admin/professor triggered this payment for an existing enrollment, the
+    // payment doc has a sessionId. In that case we auto-consume 1 session for it.
+    const linkedSessionId: string | null = paymentData.sessionId || null;
+    const willConsumeOne = !!linkedSessionId && !pendingStart;
 
     const purchaseRef = await db.collection('purchases').add({
       userId, userName: paymentData.userEmail || '', userEmail: paymentData.userEmail || '',
@@ -376,15 +420,59 @@ async function handlePaidPayment(userId: string, paymentData: any, paymentId: st
       priceMonthly: plan.priceMonthly || paymentData.amount,
       status: 'active',
       purchaseDate: admin.firestore.Timestamp.fromDate(now),
-      startDate: admin.firestore.Timestamp.fromDate(now),
-      endDate: admin.firestore.Timestamp.fromDate(periodEnd),
-      sessionsTotal: totalSessions, sessionsUsed: 0, sessionsRemaining: totalSessions,
+      startDate: pendingStart ? null : admin.firestore.Timestamp.fromDate(now),
+      endDate: pendingStart ? null : admin.firestore.Timestamp.fromDate(periodEnd),
+      pendingStart,
+      validityDays,
+      sessionsTotal: totalSessions,
+      sessionsUsed: willConsumeOne ? 1 : 0,
+      sessionsRemaining: willConsumeOne ? Math.max(0, totalSessions - 1) : totalSessions,
       paymentId,
+      nif: paymentData.nif || '',
+      consumidorFinal: !!paymentData.consumidorFinal,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    console.log('✅ Purchase activated:', purchaseRef.id, `(${totalSessions} sessions until ${periodEnd.toISOString().slice(0, 10)})`);
+    console.log('✅ Purchase activated:', purchaseRef.id, `(${totalSessions} sessions, ${pendingStart ? 'pending start (1st class)' : `until ${periodEnd.toISOString().slice(0, 10)}`}${willConsumeOne ? ', -1 for linked session' : ''})`);
+
+    // If linked to an existing enrollment, update that student entry to mark as paid
+    if (linkedSessionId) {
+      try {
+        const sessionRef = db.collection('sessions').doc(linkedSessionId);
+        await db.runTransaction(async tx => {
+          const snap = await tx.get(sessionRef);
+          if (!snap.exists) return;
+          const enrolled = (snap.data()?.enrolledStudents || []) as any[];
+          const idx = enrolled.findIndex(s => s.userId === userId);
+          if (idx === -1) {
+            // Not yet enrolled — add them now
+            enrolled.push({
+              userId,
+              userName: paymentData.userName || paymentData.userEmail || '',
+              status: 'enrolled',
+              attendanceMode: paymentData.attendanceMode || 'presencial',
+              paymentId,
+              purchaseId: purchaseRef.id,
+              paymentStatus: 'paid',
+              paymentMethod: paymentData.method === 'MBWay' ? 'mbway' : 'multibanco',
+            });
+          } else {
+            enrolled[idx] = {
+              ...enrolled[idx],
+              purchaseId: purchaseRef.id,
+              paymentId,
+              paymentStatus: 'paid',
+              paymentMethod: paymentData.method === 'MBWay' ? 'mbway' : 'multibanco',
+            };
+          }
+          tx.update(sessionRef, { enrolledStudents: enrolled, updatedAt: new Date() });
+        });
+        console.log('🔗 Linked plan purchase to session enrollment:', linkedSessionId);
+      } catch (e) {
+        console.error('Failed to link plan purchase to session:', e);
+      }
+    }
 
     // Update user
     try {
@@ -394,6 +482,7 @@ async function handlePaidPayment(userId: string, paymentData: any, paymentId: st
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
     } catch (e) { console.log('⚠️ Could not update user doc'); }
+    await markTokenPaid();
   } catch (error) {
     console.error('❌ handlePaidPayment error:', error);
   }

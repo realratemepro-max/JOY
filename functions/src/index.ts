@@ -22,6 +22,7 @@ export { processReferral } from './processReferral';
 export { exchangeGoogleOAuthCode } from './googleOAuth';
 export { importGoogleReviews } from './importGoogleReviews';
 export { onReviewCreated, onReviewUpdated, onReviewDeleted } from './updateReviewStats';
+export { onTestimonialWritten, onSessionRatingWritten } from './aggregateReviews';
 export { proxyImage } from './proxyImage';
 
 // Payment management
@@ -44,6 +45,20 @@ export { generateProfessorResetLink } from './generateProfessorResetLink';
 
 // Client account management
 export { createClientAccount } from './createClientAccount';
+export { sendClientPasswordReset } from './sendClientPasswordReset';
+export { linkClientPurchases } from './linkClientPurchases';
+
+// Admin/professor-triggered payment requests for in-person enrollments
+export { requestStudentPayment } from './requestStudentPayment';
+
+// One-off admin migration: lowercase existing email fields across collections
+export { normalizeEmailsCase } from './normalizeEmailsCase';
+
+// Payment link emails (admin/prof sends → student picks method on public page)
+export { sendPaymentLink, getPaymentTokenInfo, processTokenPayment } from './paymentLinks';
+
+// Accounting — mark invoice issued (sequential number)
+export { markInvoiceIssued } from './markInvoiceIssued';
 
 // Calendar iCal feed
 export { userCalendar } from './userCalendar';

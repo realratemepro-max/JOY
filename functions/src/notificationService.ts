@@ -178,8 +178,65 @@ interface NotificationParams {
   recipientEmail?: string;
   recipientPhone?: string;
   recipientName?: string;
+  recipientUid?: string;       // for FCM push — reads users/{uid}.fcmTokens
+  recipientRole?: 'admin' | 'professor' | 'client';
+  appUrl?: string;             // deep link for push (defaults per role)
   variables: Record<string, string>;
   templateOverride?: string;
+}
+
+const SITE_URL = 'https://joaquimyoga.pt';
+
+async function sendFcmToUid(uid: string, role: 'admin' | 'professor' | 'client' | undefined, title: string, body: string, link?: string, tag?: string): Promise<{ ok: boolean; sent: number; failed: number }> {
+  try {
+    const userSnap = await db.collection('users').doc(uid).get();
+    if (!userSnap.exists) return { ok: false, sent: 0, failed: 0 };
+    const tokens: string[] = userSnap.data()?.fcmTokens || [];
+    if (!tokens.length) return { ok: false, sent: 0, failed: 0 };
+
+    const defaultLink = role === 'admin' ? `${SITE_URL}/admin`
+                      : role === 'professor' ? `${SITE_URL}/professor`
+                      : `${SITE_URL}/app`;
+    const targetLink = link || defaultLink;
+
+    const messaging = admin.messaging();
+    const resp = await messaging.sendEachForMulticast({
+      tokens,
+      notification: { title, body },
+      data: { url: targetLink, ...(tag ? { tag } : {}) },
+      webpush: {
+        fcmOptions: { link: targetLink },
+        notification: { icon: '/icons/icon-192.svg', ...(tag ? { tag } : {}) },
+      },
+    });
+
+    // Cleanup invalid tokens
+    const failedTokens: string[] = [];
+    resp.responses.forEach((r, idx) => {
+      if (!r.success) {
+        const code = (r.error as any)?.errorInfo?.code || (r.error as any)?.code;
+        if (code === 'messaging/registration-token-not-registered' || code === 'messaging/invalid-argument' || code === 'messaging/invalid-registration-token') {
+          failedTokens.push(tokens[idx]);
+        }
+      }
+    });
+    if (failedTokens.length > 0) {
+      await db.collection('users').doc(uid).update({
+        fcmTokens: admin.firestore.FieldValue.arrayRemove(...failedTokens),
+      }).catch(() => {});
+    }
+    return { ok: resp.successCount > 0, sent: resp.successCount, failed: resp.failureCount };
+  } catch (err) {
+    console.error('sendFcmToUid failed:', err);
+    return { ok: false, sent: 0, failed: 0 };
+  }
+}
+
+async function getAdminUids(): Promise<string[]> {
+  try {
+    const snap = await db.collection('admins').get();
+    return snap.docs.map(d => d.id);
+  } catch { return []; }
 }
 
 export async function sendNotification(params: NotificationParams): Promise<void> {
@@ -259,6 +316,26 @@ export async function sendNotification(params: NotificationParams): Promise<void
         sent: false,
       });
     }
+  }
+
+  // App push (FCM) — to the specific recipient
+  if (triggerConfig.channels.app && params.recipientUid) {
+    const title = triggerConfig.label || 'JOY';
+    // Shorter body for push (notifications truncate around 100 chars)
+    const body = message.length > 140 ? message.substring(0, 137) + '...' : message;
+    const r = await sendFcmToUid(params.recipientUid, params.recipientRole, title, body, params.appUrl, `${params.trigger}_${params.recipientUid}`);
+    results.push(`app:${r.ok ? 'ok' : 'fail'}`);
+  }
+
+  // App push — broadcast to all admins if trigger has notifyAdmin
+  if (triggerConfig.channels.app && triggerConfig.notifyAdmin) {
+    const adminUids = await getAdminUids();
+    let okCount = 0;
+    for (const uid of adminUids) {
+      const r = await sendFcmToUid(uid, 'admin', `JOY · ${triggerConfig.label}`, message.length > 140 ? message.substring(0, 137) + '...' : message, undefined, `admin_${params.trigger}_${Date.now()}`);
+      if (r.ok) okCount++;
+    }
+    results.push(`app_admin:${okCount}/${adminUids.length}`);
   }
 
   // Log notification

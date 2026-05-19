@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { collection, getDocs, doc, setDoc, deleteDoc, query, orderBy, where } from 'firebase/firestore';
+import { collection, getDocs, doc, getDoc, setDoc, deleteDoc, query, orderBy, where } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { Client, Session } from '../../types';
-import { Plus, Edit2, Trash2, Save, X, Loader, Search, Mail, Phone, Calendar, ShoppingBag, Clock, MessageCircle, ChevronLeft, Send, UserPlus, Banknote, MapPin, User } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, X, Loader, Search, Mail, Phone, Calendar, ShoppingBag, Clock, MessageCircle, ChevronLeft, Send, UserPlus, Banknote, MapPin, User, Trophy } from 'lucide-react';
+import { LoyaltyJourneyView } from '../../components/LoyaltyJourneyView';
+import { LoyaltyConfig } from '../../types';
+import { DEFAULT_LOYALTY, normaliseLoyaltyConfig } from '../../services/loyaltyPresets';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { useToast } from '../../components/ToastProvider';
 
@@ -41,9 +44,17 @@ export function AdminClients() {
     setInviting(true);
     try {
       const fn = httpsCallable(getFunctions(undefined, 'europe-west1'), 'createClientAccount');
-      await fn({ name: inviteData.name.trim(), email, phone: inviteData.phone.trim() });
+      const res: any = await fn({ name: inviteData.name.trim(), email, phone: inviteData.phone.trim() });
       setInviteDone(true);
-      toast.success(`Convite enviado para ${email}`);
+      if (res.data?.emailSent) {
+        toast.success(`Conta criada e email enviado para ${email}`);
+      } else if (res.data?.resetLink) {
+        toast.warning('Conta criada mas email não foi enviado. Vê a consola para o link.');
+        console.log('Reset link para', email, ':', res.data.resetLink);
+        if (res.data.emailError) console.warn('Email error:', res.data.emailError);
+      } else {
+        toast.success(`Conta criada para ${email}`);
+      }
       await loadClients();
       setTimeout(() => { setInviteModal(false); setInviteDone(false); setInviteData({ name: '', email: '', phone: '' }); }, 2500);
     } catch (err: any) {
@@ -57,8 +68,10 @@ export function AdminClients() {
   const [clientLogs, setClientLogs] = useState<NotifLog[]>([]);
   const [clientPurchases, setClientPurchases] = useState<Purchase[]>([]);
   const [clientCredits, setClientCredits] = useState<Credit[]>([]);
-  const [detailTab, setDetailTab] = useState<'info' | 'purchases' | 'sessions' | 'comms' | 'credits'>('info');
+  const [detailTab, setDetailTab] = useState<'info' | 'purchases' | 'sessions' | 'conquistas' | 'comms' | 'credits'>('info');
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [loyaltyCfg, setLoyaltyCfg] = useState<LoyaltyConfig>(DEFAULT_LOYALTY);
+  const [selectedClientFullDoc, setSelectedClientFullDoc] = useState<any>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
   useEffect(() => { loadClients(); }, []);
@@ -125,11 +138,28 @@ export function AdminClients() {
     setDetailTab('info');
     setLoadingDetail(true);
     try {
-      const [logsSnap, purchasesSnap, creditsSnap] = await Promise.all([
+      const [logsSnap, purchasesSnap, creditsSnap, loyaltyCfgSnap, userDocSnap] = await Promise.all([
         getDocs(query(collection(db, 'notificationLogs'), where('recipientEmail', '==', client.email), orderBy('createdAt', 'desc'))).catch(() => ({ docs: [] })),
         getDocs(query(collection(db, 'purchases'), where('userEmail', '==', client.email), orderBy('createdAt', 'desc'))).catch(() => ({ docs: [] })),
         getDocs(query(collection(db, 'credits'), where('userName', '==', client.email))).catch(() => ({ docs: [] })),
+        getDoc(doc(db, 'siteConfig', 'main')).catch(() => null),
+        getDoc(doc(db, 'users', client.id)).catch(() => null),
       ]);
+
+      if (loyaltyCfgSnap && (loyaltyCfgSnap as any).exists?.() && (loyaltyCfgSnap as any).data()?.loyalty) {
+        setLoyaltyCfg(normaliseLoyaltyConfig((loyaltyCfgSnap as any).data().loyalty));
+      } else {
+        setLoyaltyCfg(DEFAULT_LOYALTY);
+      }
+      if (userDocSnap && (userDocSnap as any).exists?.()) {
+        const data = (userDocSnap as any).data();
+        setSelectedClientFullDoc({
+          totalAttendances: data?.totalAttendances || 0,
+          lastAttendanceAt: data?.lastAttendanceAt?.toDate?.() || (data?.lastAttendanceAt ? new Date(data.lastAttendanceAt) : null),
+        });
+      } else {
+        setSelectedClientFullDoc({ totalAttendances: 0, lastAttendanceAt: null });
+      }
       setClientLogs(logsSnap.docs.map((d: any) => ({ id: d.id, ...d.data(), createdAt: d.data().createdAt?.toDate() })));
       const purchases = purchasesSnap.docs.map((d: any) => ({ id: d.id, ...d.data(), startDate: d.data().startDate?.toDate(), endDate: d.data().endDate?.toDate() }));
       setClientPurchases(purchases);
@@ -157,7 +187,15 @@ export function AdminClients() {
     try {
       setSaving(true);
       const id = editing === 'new' ? doc(collection(db, 'clients')).id : editing!;
-      const data = { ...editData, totalSpent: Number(editData.totalSpent), sessionsRemaining: Number(editData.sessionsRemaining), totalSessions: Number(editData.totalSessions), createdAt: editing === 'new' ? new Date() : editData.createdAt, updatedAt: new Date() };
+      const data = {
+        ...editData,
+        email: (editData.email || '').trim().toLowerCase(),
+        totalSpent: Number(editData.totalSpent),
+        sessionsRemaining: Number(editData.sessionsRemaining),
+        totalSessions: Number(editData.totalSessions),
+        createdAt: editing === 'new' ? new Date() : editData.createdAt,
+        updatedAt: new Date(),
+      };
       delete data.id;
       await setDoc(doc(db, 'clients', id), data);
       await loadClients();
@@ -176,6 +214,7 @@ export function AdminClients() {
     plan_purchased: 'Plano Comprado', session_booked: 'Aula Marcada', session_cancelled: 'Aula Cancelada',
     session_reminder: 'Lembrete', plan_expiring: 'Plano a Expirar', session_cancelled_admin: 'Cancelada (admin)',
     professor_substituted: 'Prof. Substituído', mass_message: 'Mensagem em Massa',
+    password_reset: 'Reset de Password', client_invite: 'Convite para Conta',
   };
 
   const filtered = clients.filter(c =>
@@ -203,17 +242,62 @@ export function AdminClients() {
               {c.phone && <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}><Phone size={14} /> {c.phone}</span>}
             </div>
           </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem' }}>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             <span className={`badge badge-${c.status === 'active' ? 'success' : c.status === 'lead' ? 'warning' : 'error'}`}>
               {c.status === 'active' ? 'Ativo' : c.status === 'lead' ? 'Lead' : 'Inativo'}
             </span>
+            <button
+              className="btn btn-sm btn-secondary"
+              onClick={async () => {
+                try {
+                  const fn = httpsCallable(getFunctions(undefined, 'europe-west1'), 'linkClientPurchases');
+                  const res: any = await fn({ email: c.email });
+                  const { linked, alreadyOk, totalFound } = res.data || {};
+                  if (linked > 0) {
+                    toast.success(`${linked} compra(s) vinculadas. ${alreadyOk} já estavam OK.`);
+                  } else if (totalFound > 0) {
+                    toast.success(`Tudo OK — ${totalFound} compra(s) já vinculadas a esta conta.`);
+                  } else {
+                    toast.warning('Não foram encontradas compras com este email.');
+                  }
+                } catch (err: any) {
+                  toast.error(err?.message || 'Erro ao vincular compras');
+                }
+              }}
+              title="Associar compras feitas como convidado à conta atual"
+            >
+              <ShoppingBag size={14} /> Vincular compras
+            </button>
+            <button
+              className="btn btn-sm btn-secondary"
+              onClick={async () => {
+                if (!confirm(`Enviar link de recuperação de password para ${c.email}?`)) return;
+                try {
+                  const fn = httpsCallable(getFunctions(undefined, 'europe-west1'), 'sendClientPasswordReset');
+                  const res: any = await fn({ email: c.email, name: c.name });
+                  if (res.data?.emailSent) {
+                    toast.success(`Link enviado para ${c.email}`);
+                  } else if (res.data?.resetLink) {
+                    toast.warning('Email falhou. Link na consola para partilhares manualmente.');
+                    console.log('Reset link para', c.email, ':', res.data.resetLink);
+                  } else {
+                    toast.success('Link de reset gerado.');
+                  }
+                } catch (err: any) {
+                  toast.error(err?.message || 'Erro ao gerar reset');
+                }
+              }}
+              title="Enviar email para a cliente repor a password"
+            >
+              <Mail size={14} /> Enviar reset password
+            </button>
             <button className="btn btn-sm btn-secondary" onClick={() => { startEdit(c); setSelectedClient(null); }}><Edit2 size={14} /> Editar</button>
           </div>
         </div>
 
         {/* Tabs */}
         <div className="detail-tabs">
-          {([['info', 'Resumo'], ['sessions', 'Aulas'], ['purchases', 'Compras'], ['credits', 'Créditos'], ['comms', 'Comunicações']] as const).map(([id, label]) => (
+          {([['info', 'Resumo'], ['sessions', 'Aulas'], ['conquistas', 'Conquistas'], ['purchases', 'Compras'], ['credits', 'Créditos'], ['comms', 'Comunicações']] as const).map(([id, label]) => (
             <button key={id} className={`detail-tab ${detailTab === id ? 'active' : ''}`} onClick={() => setDetailTab(id)}>{label}</button>
           ))}
         </div>
@@ -373,6 +457,16 @@ export function AdminClients() {
                 );
               })()}
 
+              {/* CONQUISTAS */}
+              {detailTab === 'conquistas' && (
+                <LoyaltyJourneyView
+                  totalAttended={selectedClientFullDoc?.totalAttendances || 0}
+                  lastAttendanceAt={selectedClientFullDoc?.lastAttendanceAt || null}
+                  loyalty={loyaltyCfg}
+                  showName={c.name}
+                />
+              )}
+
               {/* CREDITS */}
               {detailTab === 'credits' && (
                 clientCredits.length === 0 ? <div className="empty-msg">Sem créditos.</div> : (
@@ -477,6 +571,27 @@ export function AdminClients() {
           <input className="input" style={{ paddingLeft: '2.5rem' }} value={search} onChange={e => setSearch(e.target.value)} placeholder="Pesquisar clientes..." />
         </div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button
+            className="btn btn-secondary"
+            onClick={async () => {
+              if (!confirm('Normalizar todos os emails existentes para minúsculas? Atualiza users, clients, professors, purchases, payments e logs. Seguro de correr várias vezes.')) return;
+              try {
+                const fn = httpsCallable(getFunctions(undefined, 'europe-west1'), 'normalizeEmailsCase');
+                const res: any = await fn({});
+                const results = res.data?.results || {};
+                let totalUpdated = 0;
+                Object.values(results).forEach((r: any) => { totalUpdated += r.updated || 0; });
+                toast.success(`Migração concluída — ${totalUpdated} emails normalizados.`);
+                console.table(results);
+              } catch (err: any) {
+                toast.error(err?.message || 'Erro na migração');
+              }
+            }}
+            title="Normalizar emails antigos para minúsculas (one-off)"
+            style={{ fontSize: '0.8125rem' }}
+          >
+            🔠 Normalizar Emails
+          </button>
           <button className="btn btn-secondary" onClick={() => { setInviteModal(true); setInviteDone(false); setInviteData({ name: '', email: '', phone: '' }); }}>
             <UserPlus size={16} /> Criar e Convidar
           </button>

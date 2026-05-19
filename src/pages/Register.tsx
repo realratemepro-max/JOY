@@ -3,7 +3,7 @@ import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { collection, query, where, getDocs, addDoc, doc, getDoc, updateDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { useAuth } from '../context/AuthContext';
-import { User, Mail, Lock, Phone, ArrowLeft, Loader, Cake, Users } from 'lucide-react';
+import { User, Mail, Lock, Phone, ArrowLeft, Loader, Cake, Users, Hash } from 'lucide-react';
 
 export function Register() {
   const navigate = useNavigate();
@@ -15,6 +15,8 @@ export function Register() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState('');
+  const [nif, setNif] = useState('');
+  const [consumidorFinal, setConsumidorFinal] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [referralCode, setReferralCode] = useState('');
@@ -35,6 +37,11 @@ export function Register() {
       setLocalError('A data de nascimento é obrigatória.');
       return;
     }
+    const trimmedNif = (nif || '').trim().replace(/\s/g, '');
+    if (!consumidorFinal && !/^\d{9}$/.test(trimmedNif)) {
+      setLocalError('Indica um NIF válido (9 dígitos) ou marca "Sou consumidor final".');
+      return;
+    }
     if (password !== confirmPassword) {
       setLocalError('As passwords não coincidem.');
       return;
@@ -51,7 +58,8 @@ export function Register() {
     try {
       setLoading(true);
       clearError();
-      await register(email, password, name, phone || undefined, dateOfBirth);
+      const normalizedEmail = email.trim().toLowerCase();
+      await register(normalizedEmail, password, name, phone || undefined, dateOfBirth);
 
       // Record consent on user doc (RGPD audit)
       try {
@@ -60,6 +68,8 @@ export function Register() {
           await updateDoc(doc(db, 'users', authUser.uid), {
             termsAcceptedAt: Timestamp.now(),
             termsAcceptedVersion: '2026-04-26',
+            nif: consumidorFinal ? '' : trimmedNif,
+            consumidorFinal,
           });
         }
       } catch (e) { console.warn('Could not record consent timestamp', e); }
@@ -202,6 +212,32 @@ export function Register() {
               <input type="date" className="input input-with-icon" value={dateOfBirth} onChange={e => setDateOfBirth(e.target.value)} required max={new Date(new Date().setFullYear(new Date().getFullYear() - 10)).toISOString().split('T')[0]} />
             </div>
             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem', display: 'block' }}>Usada para te oferecer uma surpresa no teu aniversário 🎂</span>
+          </div>
+
+          <div className="form-group">
+            <label className="label">
+              NIF
+              {!consumidorFinal && <span style={{ color: 'var(--accent)', marginLeft: '0.25rem', fontSize: '0.8125rem' }}>*</span>}
+            </label>
+            <div className="input-icon-wrapper">
+              <Hash size={18} className="input-icon" />
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]{9}"
+                maxLength={9}
+                className="input input-with-icon"
+                value={nif}
+                onChange={e => setNif(e.target.value.replace(/[^0-9]/g, ''))}
+                placeholder="9 dígitos"
+                disabled={consumidorFinal}
+                required={!consumidorFinal}
+              />
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginTop: '0.5rem', cursor: 'pointer' }}>
+              <input type="checkbox" checked={consumidorFinal} onChange={e => setConsumidorFinal(e.target.checked)} />
+              Sou consumidor final (dispensa fatura com NIF)
+            </label>
           </div>
 
           <div className="form-group">

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { collection, getDocs, doc, updateDoc, query, orderBy, getDoc, where, addDoc, setDoc, increment, runTransaction, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../context/AuthContext';
@@ -35,11 +35,13 @@ function getPeriodBounds(period: 'week' | 'month', offset: number): { start: Dat
 
 interface ActivePurchase {
   id: string;
-  endDate: Date;
+  endDate: Date | null;
   planName: string;
   sessionsRemaining: number;
   sessionsTotal: number;
   billingType?: 'subscription' | 'dropin';
+  pendingStart?: boolean;
+  validityDays?: number;
 }
 
 interface CancelModal {
@@ -64,6 +66,7 @@ export function ClientSessions() {
   const [hybridModal, setHybridModal] = useState<Session | null>(null);
   const [bookModal, setBookModal] = useState<{ session: Session; mode: 'presencial' | 'online' } | null>(null);
   const [waitlistModal, setWaitlistModal] = useState<Session | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [ratingModal, setRatingModal] = useState<Session | null>(null);
   const [ratingStars, setRatingStars] = useState(5);
   const [ratingComment, setRatingComment] = useState('');
@@ -94,6 +97,21 @@ export function ClientSessions() {
     return () => unsub();
   }, [user]);
 
+  // Auto-open waitlist modal when arriving with ?join={sessionId}
+  useEffect(() => {
+    const joinId = searchParams.get('join');
+    if (!joinId || sessions.length === 0) return;
+    const target = sessions.find(s => s.id === joinId);
+    if (!target) return;
+    // Only auto-trigger if class is actually full
+    const full = (target.enrolledStudents?.length || 0) >= (target.maxCapacity || 99);
+    if (full && !isOnWaitlist(target)) setWaitlistModal(target);
+    // Clear the param so reload doesn't re-trigger
+    searchParams.delete('join');
+    setSearchParams(searchParams, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions]);
+
   const loadData = async () => {
     try {
       const [locsSnap, configSnap, purchasesSnap, userSnap, ratingsSnap, dropinSnap] = await Promise.all([
@@ -115,16 +133,18 @@ export function ClientSessions() {
         const data = d.data();
         return {
           id: d.id,
-          endDate: data.endDate?.toDate(),
+          endDate: data.endDate?.toDate() || null,
           planName: data.planName || '',
           sessionsRemaining: data.sessionsRemaining ?? 0,
           sessionsTotal: data.sessionsTotal ?? 0,
           billingType: data.billingType,
+          pendingStart: data.pendingStart === true,
+          validityDays: data.validityDays,
         };
-      }).filter(p => p.endDate >= now2);
+      }).filter(p => p.pendingStart || (p.endDate && p.endDate >= now2));
       setActivePurchases(active);
       const usable = active.find(p => p.sessionsRemaining > 0);
-      if (usable) setActivePurchase({ endDate: usable.endDate, planName: usable.planName });
+      if (usable && usable.endDate) setActivePurchase({ endDate: usable.endDate, planName: usable.planName });
       if (userSnap.exists()) setTotalAttendances(userSnap.data()?.totalAttendances || 0);
       setMyRatings(new Set(ratingsSnap.docs.map(d => d.data().sessionId as string)));
     } catch (err) { console.error(err); }
@@ -196,12 +216,23 @@ export function ClientSessions() {
         }
         tx.update(sessionRef, { enrolledStudents: [...fresh, newStudent], updatedAt: new Date() });
       });
-      // Decrement purchase
-      await updateDoc(doc(db, 'purchases', purchaseId), {
+      // Decrement purchase — and if pendingStart, activate it now using this class's date
+      const purchaseUpdate: any = {
         sessionsUsed: increment(1),
         sessionsRemaining: increment(-1),
         updatedAt: new Date(),
-      });
+      };
+      const purchase = activePurchases.find(p => p.id === purchaseId);
+      if (purchase?.pendingStart) {
+        const start = new Date(session.date);
+        const validity = purchase.validityDays || 30;
+        const end = new Date(start);
+        end.setDate(end.getDate() + validity);
+        purchaseUpdate.startDate = start;
+        purchaseUpdate.endDate = end;
+        purchaseUpdate.pendingStart = false;
+      }
+      await updateDoc(doc(db, 'purchases', purchaseId), purchaseUpdate);
       setActivePurchases(prev => prev.map(p => p.id === purchaseId ? { ...p, sessionsRemaining: p.sessionsRemaining - 1 } : p).filter(p => p.sessionsRemaining > 0));
       setBookModal(null);
       setTab('booked');
@@ -335,31 +366,24 @@ export function ClientSessions() {
     setRatingSubmitting(true);
     try {
       const hasComment = ratingComment.trim().length > 0;
-      const status = hasComment ? 'pending' : 'auto_approved';
-      const ratingRef = await addDoc(collection(db, 'sessionRatings'), {
+      await addDoc(collection(db, 'sessionRatings'), {
         sessionId: ratingModal.id,
         sessionName: ratingModal.name || `${ratingModal.startTime} ${ratingModal.locationName}`,
         sessionDate: ratingModal.date,
+        professorId: ratingModal.professorId || null,
+        professorName: ratingModal.professorName || null,
+        locationId: ratingModal.locationId || null,
+        locationName: ratingModal.locationName || null,
         userId: user.uid,
         userName: appUser.name,
         stars: ratingStars,
         comment: hasComment ? ratingComment.trim() : null,
-        status,
+        // Comments here are PRIVATE feedback for admin/prof — not public testimonials.
+        // Stars feed the aggregations via the onSessionRatingWritten trigger.
+        isPrivate: hasComment,
+        status: 'auto_approved',
         createdAt: new Date(),
       });
-      // Auto-approved (no comment) → immediately create testimonial
-      if (status === 'auto_approved') {
-        await addDoc(collection(db, 'testimonials'), {
-          name: appUser.name,
-          text: `${ratingStars} estrela${ratingStars !== 1 ? 's' : ''} — aula de ${ratingModal.date?.toLocaleDateString('pt-PT', { day: 'numeric', month: 'long' })}`,
-          rating: ratingStars,
-          isActive: true,
-          order: 99,
-          source: 'rating',
-          ratingId: ratingRef.id,
-          createdAt: new Date(),
-        });
-      }
       setMyRatings(prev => new Set([...prev, ratingModal.id]));
       setRatingModal(null);
     } catch (err) { console.error(err); }
@@ -611,7 +635,12 @@ export function ClientSessions() {
                     <div>
                       <div style={{ fontWeight: 600 }}>Usar plano "{p.planName}"</div>
                       <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
-                        {p.sessionsRemaining} {p.sessionsRemaining === 1 ? 'aula restante' : 'aulas restantes'} · válido até {p.endDate.toLocaleDateString('pt-PT')}
+                        {p.sessionsRemaining} {p.sessionsRemaining === 1 ? 'aula restante' : 'aulas restantes'} ·{' '}
+                        {p.pendingStart
+                          ? `começa nesta aula · válido por ${p.validityDays || 30} dias`
+                          : p.endDate
+                            ? `válido até ${p.endDate.toLocaleDateString('pt-PT')}`
+                            : ''}
                       </div>
                     </div>
                   </button>
@@ -807,9 +836,9 @@ export function ClientSessions() {
                   <div className="policy-title"><Check size={16} /> Cancelamento gratuito</div>
                   {cancelModal.refundPurchase ? (
                     cancelModal.refundPurchase.billingType === 'dropin' ? (
-                      <p>A aula avulsa <strong>"{cancelModal.refundPurchase.planName}"</strong> volta a ficar disponível na tua conta. Podes usá-la até <strong>{cancelModal.refundPurchase.endDate.toLocaleDateString('pt-PT')}</strong> (validade original).</p>
+                      <p>A aula avulsa <strong>"{cancelModal.refundPurchase.planName}"</strong> volta a ficar disponível na tua conta.{cancelModal.refundPurchase.endDate ? <> Podes usá-la até <strong>{cancelModal.refundPurchase.endDate.toLocaleDateString('pt-PT')}</strong> (validade original).</> : null}</p>
                     ) : (
-                      <p>A aula volta ao teu plano <strong>"{cancelModal.refundPurchase.planName}"</strong>. Podes usá-la até <strong>{cancelModal.refundPurchase.endDate.toLocaleDateString('pt-PT')}</strong> (validade original do plano).</p>
+                      <p>A aula volta ao teu plano <strong>"{cancelModal.refundPurchase.planName}"</strong>.{cancelModal.refundPurchase.endDate ? <> Podes usá-la até <strong>{cancelModal.refundPurchase.endDate.toLocaleDateString('pt-PT')}</strong> (validade original do plano).</> : null}</p>
                     )
                   ) : (
                     <p>A aula é cancelada sem reembolso (sem plano ou aula avulsa associada).</p>

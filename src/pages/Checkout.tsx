@@ -32,10 +32,15 @@ export function Checkout() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [startMode, setStartMode] = useState<'immediate' | 'first_class'>('immediate');
 
   // Client info (for non-logged-in purchases)
   const [clientName, setClientName] = useState('');
   const [clientEmail, setClientEmail] = useState('');
+
+  // Invoice / NIF
+  const [nif, setNif] = useState('');
+  const [consumidorFinal, setConsumidorFinal] = useState(false);
 
   // Gift card
   const [giftCardCode, setGiftCardCode] = useState('');
@@ -85,6 +90,19 @@ export function Checkout() {
   useEffect(() => {
     if (user?.email) setClientEmail(user.email);
     if (user?.displayName) setClientName(user.displayName);
+    // Prefill NIF / consumidorFinal from user doc
+    if (user?.uid) {
+      (async () => {
+        try {
+          const snap = await getDoc(doc(db, 'users', user.uid));
+          if (snap.exists()) {
+            const data = snap.data();
+            if (data.nif) setNif(data.nif);
+            if (data.consumidorFinal) setConsumidorFinal(true);
+          }
+        } catch {/* ignore */}
+      })();
+    }
   }, [user]);
 
   const loadService = async () => {
@@ -196,6 +214,11 @@ export function Checkout() {
       setError('Por favor, insere um número de telefone válido');
       return;
     }
+    const trimmedNif = nif.trim().replace(/\s/g, '');
+    if (!consumidorFinal && !/^\d{9}$/.test(trimmedNif)) {
+      setError('Indica o teu NIF (9 dígitos) ou marca "Sou consumidor final".');
+      return;
+    }
 
     try {
       setProcessing(true);
@@ -214,7 +237,10 @@ export function Checkout() {
           type: payType,
           sessionId,
           attendanceMode,
-        });
+          startMode: payType === 'plan_subscription' ? startMode : 'immediate',
+          nif: consumidorFinal ? '' : trimmedNif,
+          consumidorFinal,
+        } as any);
         if (result.success) {
           if (promoDiscount) await applyPromoCode({ promoCodeId: promoDiscount.promoCodeId, paymentId: result.paymentId!, discountAmount: promoDiscount.discountAmount, originalAmount: itemPrice, finalAmount: finalTotal });
           if (gcApplied && gcData) await updateDoc(doc(db, 'payments', result.paymentId!), { giftCardCode: gcData.code, giftCardId: gcData.id, giftCardDiscount: gcDiscount });
@@ -232,7 +258,10 @@ export function Checkout() {
           type: payType,
           sessionId,
           attendanceMode,
-        });
+          startMode: payType === 'plan_subscription' ? startMode : 'immediate',
+          nif: consumidorFinal ? '' : trimmedNif,
+          consumidorFinal,
+        } as any);
         if (result.success) {
           if (promoDiscount) await applyPromoCode({ promoCodeId: promoDiscount.promoCodeId, paymentId: result.paymentId!, discountAmount: promoDiscount.discountAmount, originalAmount: itemPrice, finalAmount: finalTotal });
           if (gcApplied && gcData) await updateDoc(doc(db, 'payments', result.paymentId!), { giftCardCode: gcData.code, giftCardId: gcData.id, giftCardDiscount: gcDiscount });
@@ -299,6 +328,34 @@ export function Checkout() {
   const gcFullyCovered = gcDiscount >= afterPromo && afterPromo > 0;
 
   if (!service && !event) return null;
+
+  // Auth gate — block checkout for unauthenticated users so we don't end up
+  // with orphan purchases (paid but no account → can't book).
+  if (!user) {
+    const nextUrl = encodeURIComponent(window.location.pathname + window.location.search);
+    return (
+      <div className="checkout-page">
+        <div className="checkout-container">
+          <Link to="/#servicos" className="back-button">
+            <ArrowLeft size={18} /> Voltar
+          </Link>
+          <div style={{ maxWidth: 480, margin: '3rem auto', background: 'white', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-md)', padding: '2.5rem 2rem', textAlign: 'center' }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 56, height: 56, borderRadius: '50%', background: 'rgba(124,154,114,0.12)', marginBottom: '1rem' }}>
+              <AlertCircle size={28} color="var(--primary)" />
+            </div>
+            <h2 style={{ fontFamily: 'var(--font-heading)', margin: '0 0 0.5rem' }}>Cria conta para continuar</h2>
+            <p style={{ color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
+              Para comprares <strong>{itemName}</strong> precisas de uma conta. Ficas com o histórico, marcas aulas, e a tua compra fica logo associada ao teu perfil.
+            </p>
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+              <Link to={`/register?next=${nextUrl}`} className="btn btn-primary">Criar conta</Link>
+              <Link to={`/login?next=${nextUrl}`} className="btn btn-secondary">Já tenho conta</Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="checkout-page">
@@ -431,6 +488,53 @@ export function Checkout() {
               </div>
             </div>
 
+            {/* Start mode — only for plan subscriptions, not drop-in or events */}
+            {service && service.billingType !== 'dropin' && !isEvent && (
+              <>
+                <h3 style={{ fontSize: '1.125rem', marginBottom: '0.5rem', marginTop: '1.5rem' }}>Quando começa o plano?</h3>
+                <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', margin: '0 0 0.75rem' }}>
+                  Podes começar já a contar os dias do plano, ou só quando marcares a tua 1ª aula — assim aproveitas o tempo todo.
+                </p>
+                <div className="start-mode-options">
+                  <button type="button" className={`start-mode-card ${startMode === 'immediate' ? 'selected' : ''}`} onClick={() => setStartMode('immediate')} disabled={processing}>
+                    <div className="start-mode-info">
+                      <h4>Iniciar já</h4>
+                      <p>Conta os dias a partir de hoje</p>
+                    </div>
+                    {startMode === 'immediate' && <CheckCircle size={18} className="selected-check" />}
+                  </button>
+                  <button type="button" className={`start-mode-card ${startMode === 'first_class' ? 'selected' : ''}`} onClick={() => setStartMode('first_class')} disabled={processing}>
+                    <div className="start-mode-info">
+                      <h4>Iniciar na 1ª aula</h4>
+                      <p>O plano só começa a contar quando marcares a primeira aula</p>
+                    </div>
+                    {startMode === 'first_class' && <CheckCircle size={18} className="selected-check" />}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* Invoice / NIF */}
+            <h3 style={{ fontSize: '1.125rem', marginBottom: '0.5rem', marginTop: '1.5rem' }}>Fatura / Recibo</h3>
+            <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+              <label className="label">NIF {!consumidorFinal && <span style={{ color: 'var(--accent)' }}>*</span>}</label>
+              <input
+                className="input"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]{9}"
+                maxLength={9}
+                value={nif}
+                onChange={e => setNif(e.target.value.replace(/[^0-9]/g, ''))}
+                placeholder="9 dígitos"
+                disabled={consumidorFinal}
+              />
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginTop: '0.5rem', cursor: 'pointer' }}>
+                <input type="checkbox" checked={consumidorFinal} onChange={e => setConsumidorFinal(e.target.checked)} />
+                Sou consumidor final (dispensa fatura com NIF)
+              </label>
+            </div>
+
             {/* Payment Methods */}
             <h3 style={{ fontSize: '1.125rem', marginBottom: '1rem' }}>Método de Pagamento</h3>
             <div className="payment-methods">
@@ -532,6 +636,15 @@ export function Checkout() {
         .total-amount { font-size: 1.5rem; color: var(--primary-dark); }
         .client-info { margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--beige); }
         .payment-methods { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.5rem; }
+        .start-mode-options { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1.5rem; }
+        .start-mode-card { display: flex; align-items: center; gap: 0.75rem; padding: 1rem; background: white; border: 2px solid var(--sand); border-radius: var(--radius-lg); cursor: pointer; transition: all var(--transition-fast); text-align: left; width: 100%; }
+        .start-mode-card:hover:not(:disabled) { border-color: var(--primary); }
+        .start-mode-card.selected { border-color: var(--primary); background: rgba(124, 154, 114, 0.05); }
+        .start-mode-card:disabled { opacity: 0.6; cursor: not-allowed; }
+        .start-mode-info { flex: 1; }
+        .start-mode-info h4 { margin: 0 0 0.125rem; font-size: 0.9375rem; font-family: var(--font-body); }
+        .start-mode-info p { margin: 0; font-size: 0.75rem; color: var(--text-secondary); }
+        @media (max-width: 600px) { .start-mode-options { grid-template-columns: 1fr; } }
         .payment-method-card { display: flex; align-items: center; gap: 1rem; padding: 1.25rem; background: white; border: 2px solid var(--sand); border-radius: var(--radius-lg); cursor: pointer; transition: all var(--transition-fast); text-align: left; width: 100%; }
         .payment-method-card:hover:not(:disabled) { border-color: var(--primary); }
         .payment-method-card.selected { border-color: var(--primary); background: rgba(124, 154, 114, 0.05); }
